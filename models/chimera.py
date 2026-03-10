@@ -168,6 +168,7 @@ class ChimeraODIS(nn.Module):
         imgs: Tensor,
         targets: Sequence[Any],
         return_dict: bool = False,
+        debug: bool = False,
     ) -> Tensor | Dict[str, Tensor]:
         """Compute detection loss from raw model outputs and normalized xyxy targets."""
         outputs = self.forward(imgs)
@@ -222,6 +223,16 @@ class ChimeraODIS(nn.Module):
             "num_fg": det_loss_dict["num_fg"],
             "num_mask_pos": mask_loss_dict["num_mask_pos"],
         }
+
+        if debug or not torch.isfinite(loss_total):
+            non_finite_components = []
+            for name, value in loss_dict.items():
+                if isinstance(value, Tensor) and not torch.isfinite(value).all():
+                    non_finite_components.append(f"{name}={float(value.detach()):.6f}")
+            if non_finite_components:
+                print(f"non-finite loss components: {', '.join(non_finite_components)}")
+                print(f"  num_fg={float(loss_dict['num_fg'])}, num_mask_pos={float(loss_dict['num_mask_pos'])}")
+
         if return_dict:
             return loss_dict
         return loss_dict["loss_total"]

@@ -9,6 +9,13 @@ from torch import Tensor, nn
 from utils.box_ops import box_area, box_iou, ciou_loss
 
 
+def _cast_like(src: Tensor, ref: Tensor, *, dtype_override: torch.dtype | None = None) -> Tensor:
+    target_dtype = dtype_override if dtype_override is not None else ref.dtype
+    if src.device == ref.device and src.dtype == target_dtype:
+        return src
+    return src.to(device=ref.device, dtype=target_dtype)
+
+
 def _one_hot(labels: Tensor, num_classes: int, dtype: torch.dtype) -> Tensor:
     target = torch.zeros((labels.shape[0], num_classes), device=labels.device, dtype=dtype)
     if labels.numel() > 0:
@@ -98,12 +105,13 @@ class CenterPriorAssigner:
         fg_mask = torch.isfinite(min_area)
 
         if fg_mask.any():
-            matched_boxes = gt_boxes[matched_gt_idx[fg_mask]]
+            matched_boxes = _cast_like(gt_boxes[matched_gt_idx[fg_mask]], assigned_boxes)
             assigned_boxes[fg_mask] = matched_boxes
             assigned_labels[fg_mask] = gt_labels[matched_gt_idx[fg_mask]]
             matched_gt_indices[fg_mask] = matched_gt_idx[fg_mask]
             point_boxes = torch.cat((points[fg_mask], points[fg_mask]), dim=1)
-            quality[fg_mask] = box_iou(point_boxes, matched_boxes).diag().clamp(min=0.0, max=1.0)
+            quality_values = box_iou(point_boxes, matched_boxes).diag().clamp(min=0.0, max=1.0)
+            quality[fg_mask] = _cast_like(quality_values, quality)
 
         return {
             "fg_mask": fg_mask,
@@ -182,9 +190,13 @@ class DetectionLoss(nn.Module):
                     dtype=dtype,
                 )
                 pred_boxes_pos = decoded_boxes[batch_index, fg_mask]
-                ious = 1.0 - ciou_loss(pred_boxes_pos, matched_boxes)
-                obj_target[batch_index, fg_mask] = ious.detach().clamp(min=0.0, max=1.0)
-                box_losses.append(ciou_loss(pred_boxes_pos, matched_boxes).sum())
+                matched_boxes = _cast_like(matched_boxes, pred_boxes_pos)
+                ciou_values = ciou_loss(pred_boxes_pos, matched_boxes)
+                ciou_values = torch.nan_to_num(ciou_values, nan=1.0, posinf=1.0, neginf=1.0)
+                ious_per_box = (1.0 - ciou_values).clamp(min=0.0, max=1.0)
+                obj_target_values = ious_per_box.detach()
+                obj_target[batch_index, fg_mask] = _cast_like(obj_target_values, obj_target)
+                box_losses.append(ciou_values.sum())
 
         normalizer = total_fg.clamp(min=1.0)
         loss_cls = F.binary_cross_entropy_with_logits(pred_cls, cls_target, reduction="sum") / normalizer

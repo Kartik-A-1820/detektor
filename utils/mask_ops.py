@@ -78,10 +78,13 @@ def crop_mask_region(masks: Tensor, boxes_xyxy: Tensor) -> Tensor:
     ys = torch.arange(proto_h, device=masks.device, dtype=masks.dtype).view(1, proto_h, 1)
     xs = torch.arange(proto_w, device=masks.device, dtype=masks.dtype).view(1, 1, proto_w)
 
-    x1 = boxes_xyxy[:, 0].floor().view(-1, 1, 1)
-    y1 = boxes_xyxy[:, 1].floor().view(-1, 1, 1)
-    x2 = boxes_xyxy[:, 2].ceil().view(-1, 1, 1)
-    y2 = boxes_xyxy[:, 3].ceil().view(-1, 1, 1)
+    x1 = boxes_xyxy[:, 0].floor().clamp(min=0.0, max=float(proto_w - 1)).view(-1, 1, 1)
+    y1 = boxes_xyxy[:, 1].floor().clamp(min=0.0, max=float(proto_h - 1)).view(-1, 1, 1)
+    x2 = boxes_xyxy[:, 2].ceil().clamp(min=1.0, max=float(proto_w)).view(-1, 1, 1)
+    y2 = boxes_xyxy[:, 3].ceil().clamp(min=1.0, max=float(proto_h)).view(-1, 1, 1)
+
+    x2 = torch.maximum(x2, x1 + 1.0)
+    y2 = torch.maximum(y2, y1 + 1.0)
 
     crop = (xs >= x1) & (xs < x2) & (ys >= y1) & (ys < y2)
     return masks * crop.to(dtype=masks.dtype)

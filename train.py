@@ -48,6 +48,7 @@ def train(
     weights: str | None = None,
     use_ema: bool = False,
     grad_clip_norm: float = 0.0,
+    debug_loss: bool = False,
 ) -> Dict[str, Any]:
     """Run the production-hardened training loop with safe resume and logging helpers."""
     with open(config_path, "r", encoding="utf-8") as handle:
@@ -91,7 +92,7 @@ def train(
         weight_decay=cfg["train"]["weight_decay"],
     )
     amp_enabled = bool(cfg["train"].get("amp", False) and device.type == "cuda")
-    scaler = torch.cuda.amp.GradScaler(enabled=amp_enabled)
+    scaler = torch.amp.GradScaler("cuda", enabled=amp_enabled)
     ema = ModelEMA(model, decay=float(cfg["train"].get("ema_decay", 0.9998))) if use_ema else None
 
     out_dir = Path(cfg.get("logging", {}).get("out_dir", "runs/chimera"))
@@ -147,8 +148,8 @@ def train(
         for step_index, (imgs, targets) in enumerate(pbar, start=1):
             imgs = imgs.to(device, non_blocking=device.type == "cuda")
 
-            with torch.cuda.amp.autocast(enabled=amp_enabled):
-                loss = model.compute_loss(imgs, targets)
+            with torch.amp.autocast("cuda", enabled=amp_enabled):
+                loss = model.compute_loss(imgs, targets, debug=debug_loss)
                 loss = loss / grad_accum
 
             if not torch.isfinite(loss).all():
@@ -239,6 +240,7 @@ if __name__ == "__main__":
     parser.add_argument("--weights", type=str, default="", help="Optional model weights or checkpoint to initialize from before training")
     parser.add_argument("--ema", action="store_true", help="Enable exponential moving average tracking for model weights")
     parser.add_argument("--grad-clip", type=float, default=0.0, help="Gradient clipping max-norm; 0 disables clipping")
+    parser.add_argument("--debug-loss", action="store_true", help="Enable detailed loss component debugging output")
     args = parser.parse_args()
 
     train(
@@ -248,4 +250,5 @@ if __name__ == "__main__":
         weights=args.weights or None,
         use_ema=args.ema,
         grad_clip_norm=args.grad_clip,
+        debug_loss=args.debug_loss,
     )
