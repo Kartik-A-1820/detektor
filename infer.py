@@ -1,7 +1,8 @@
 from __future__ import annotations
 
+import yaml
 from pathlib import Path
-from typing import Dict, Optional
+from typing import Dict, List, Optional
 
 import cv2
 import torch
@@ -50,10 +51,23 @@ def _prepare_image(source: str, image_size: int = 512) -> tuple[Tensor, Tensor, 
     return image_tensor.unsqueeze(0), torch.from_numpy(cv2.cvtColor(image_bgr, cv2.COLOR_BGR2RGB)), (original_height, original_width)
 
 
+def _detect_num_classes(checkpoint: Dict) -> int:
+    """Auto-detect num_classes from checkpoint by inspecting classification head."""
+    if isinstance(checkpoint, dict) and "model_state" in checkpoint:
+        state_dict = checkpoint["model_state"]
+    else:
+        state_dict = checkpoint
+    
+    for key in state_dict.keys():
+        if "cls_preds" in key and "bias" in key:
+            return state_dict[key].shape[0]
+    return 1
+
+
 def infer(
     weights: str,
     source: str,
-    num_classes: int = 1,
+    num_classes: Optional[int] = None,
     image_size: int = 512,
     conf_thresh: float = 0.25,
     iou_thresh: float = 0.6,
@@ -61,11 +75,17 @@ def infer(
     max_det: int = 100,
     mask_thresh: float = 0.5,
     save_path: Optional[str] = None,
+    class_names: Optional[List[str]] = None,
 ) -> Dict[str, Tensor]:
     """Run ChimeraODIS inference on one image and optionally save a visualization."""
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    model = ChimeraODIS(num_classes=num_classes).to(device)
     checkpoint = torch.load(weights, map_location=device)
+    
+    if num_classes is None:
+        num_classes = _detect_num_classes(checkpoint)
+        print(f"auto-detected num_classes={num_classes} from checkpoint")
+    
+    model = ChimeraODIS(num_classes=num_classes).to(device)
     if isinstance(checkpoint, dict) and "model_state" in checkpoint:
         model.load_state_dict(checkpoint["model_state"], strict=True)
     else:
@@ -88,9 +108,16 @@ def infer(
     num_det = int(predictions["boxes"].shape[0])
     score_list = [round(float(score), 4) for score in predictions["scores"].detach().cpu()]
     label_list = [int(label) for label in predictions["labels"].detach().cpu()]
-    print(f"detections: {num_det}")
-    print(f"labels: {label_list}")
-    print(f"scores: {score_list}")
+    
+    if class_names:
+        label_names = [class_names[label] for label in label_list]
+        print(f"detections: {num_det}")
+        print(f"labels: {label_names}")
+        print(f"scores: {score_list}")
+    else:
+        print(f"detections: {num_det}")
+        print(f"labels: {label_list}")
+        print(f"scores: {score_list}")
     print(f"mask_count: {int(predictions['masks'].shape[0])}")
 
     vis_tensor = original_rgb.to(device=device, dtype=torch.float32)
@@ -107,31 +134,146 @@ def infer(
     return predictions
 
 
+def infer_folder(
+    weights: str,
+    source_dir: str,
+    output_dir: str,
+    num_classes: Optional[int] = None,
+    image_size: int = 512,
+    conf_thresh: float = 0.25,
+    iou_thresh: float = 0.6,
+    topk_pre_nms: int = 300,
+    max_det: int = 100,
+    mask_thresh: float = 0.5,
+    class_names: Optional[List[str]] = None,
+) -> None:
+    """Run inference on all images in a folder and save visualizations."""
+    source_path = Path(source_dir)
+    output_path = Path(output_dir)
+    output_path.mkdir(parents=True, exist_ok=True)
+    
+    image_extensions = [".jpg", ".jpeg", ".png", ".bmp", ".webp"]
+    image_files = [f for f in source_path.iterdir() if f.suffix.lower() in image_extensions]
+    
+    if not image_files:
+        print(f"no images found in {source_dir}")
+        return
+    
+    print(f"found {len(image_files)} images in {source_dir}")
+    print(f"saving results to {output_dir}")
+    
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    checkpoint = torch.load(weights, map_location=device)
+    
+    if num_classes is None:
+        num_classes = _detect_num_classes(checkpoint)
+        print(f"auto-detected num_classes={num_classes} from checkpoint")
+    
+    model = ChimeraODIS(num_classes=num_classes).to(device)
+    if isinstance(checkpoint, dict) and "model_state" in checkpoint:
+        model.load_state_dict(checkpoint["model_state"], strict=True)
+    else:
+        model.load_state_dict(checkpoint, strict=True)
+    model.eval()
+    
+    for idx, image_file in enumerate(image_files, start=1):
+        print(f"\n[{idx}/{len(image_files)}] processing: {image_file.name}")
+        
+        try:
+            image_tensor, original_rgb, original_size = _prepare_image(str(image_file), image_size=image_size)
+            image_tensor = image_tensor.to(device)
+            
+            predictions = model.predict(
+                image_tensor,
+                original_sizes=[original_size],
+                conf_thresh=conf_thresh,
+                iou_thresh=iou_thresh,
+                topk_pre_nms=topk_pre_nms,
+                max_det=max_det,
+                mask_thresh=mask_thresh,
+            )[0]
+            
+            num_det = int(predictions["boxes"].shape[0])
+            label_list = [int(label) for label in predictions["labels"].detach().cpu()]
+            
+            if class_names:
+                label_names = [class_names[label] for label in label_list]
+                print(f"  detections: {num_det}, labels: {label_names}")
+            else:
+                print(f"  detections: {num_det}, labels: {label_list}")
+            
+            vis_tensor = original_rgb.to(device=device, dtype=torch.float32)
+            vis_tensor = _overlay_masks(vis_tensor, predictions["masks"].to(device=device))
+            if vis_tensor is not None:
+                vis_image = vis_tensor.clamp(0, 255).byte().cpu().numpy()
+                vis_image = draw_boxes(vis_image, predictions["boxes"].detach().cpu().numpy())
+                vis_bgr = cv2.cvtColor(vis_image, cv2.COLOR_RGB2BGR)
+                
+                output_file = output_path / f"{image_file.stem}_pred{image_file.suffix}"
+                cv2.imwrite(str(output_file), vis_bgr)
+                print(f"  saved: {output_file.name}")
+        
+        except Exception as e:
+            print(f"  error processing {image_file.name}: {e}")
+            continue
+    
+    print(f"\ncompleted: processed {len(image_files)} images")
+    print(f"results saved to: {output_dir}")
+
+
 if __name__ == "__main__":
     import argparse
 
-    parser = argparse.ArgumentParser(description="Run single-image Detektor inference")
+    parser = argparse.ArgumentParser(description="Run Detektor inference on image(s)")
     parser.add_argument("--weights", type=str, default="chimera_last.pt", help="Path to model weights or checkpoint")
-    parser.add_argument("--source", type=str, required=True, help="Path to the input image")
-    parser.add_argument("--num-classes", type=int, default=1, help="Number of classes expected by the checkpoint")
+    parser.add_argument("--source", type=str, required=True, help="Path to input image or folder")
+    parser.add_argument("--data-yaml", type=str, default="", help="Optional dataset YAML to load class names")
+    parser.add_argument("--num-classes", type=int, default=None, help="Number of classes (auto-detected if not provided)")
     parser.add_argument("--img-size", type=int, default=512, help="Square model input size")
     parser.add_argument("--conf-thresh", type=float, default=0.25, help="Confidence threshold used before NMS")
     parser.add_argument("--iou-thresh", type=float, default=0.6, help="IoU threshold used by NMS")
     parser.add_argument("--topk-pre-nms", type=int, default=300, help="Maximum candidates kept before NMS")
     parser.add_argument("--max-det", type=int, default=100, help="Maximum detections per image")
     parser.add_argument("--mask-thresh", type=float, default=0.5, help="Threshold used to binarize predicted masks")
-    parser.add_argument("--save-path", type=str, default="", help="Optional output path for a visualization image")
+    parser.add_argument("--save-path", type=str, default="", help="Output path for single image or folder for batch")
     args = parser.parse_args()
-
-    infer(
-        weights=args.weights,
-        source=args.source,
-        num_classes=args.num_classes,
-        image_size=args.img_size,
-        conf_thresh=args.conf_thresh,
-        iou_thresh=args.iou_thresh,
-        topk_pre_nms=args.topk_pre_nms,
-        max_det=args.max_det,
-        mask_thresh=args.mask_thresh,
-        save_path=args.save_path or None,
-    )
+    
+    class_names = None
+    if args.data_yaml:
+        with open(args.data_yaml, "r") as f:
+            data_config = yaml.safe_load(f)
+            class_names = data_config.get("names", None)
+            print(f"loaded class names: {class_names}")
+    
+    source_path = Path(args.source)
+    
+    if source_path.is_dir():
+        output_dir = args.save_path if args.save_path else "runs/inference"
+        infer_folder(
+            weights=args.weights,
+            source_dir=args.source,
+            output_dir=output_dir,
+            num_classes=args.num_classes,
+            image_size=args.img_size,
+            conf_thresh=args.conf_thresh,
+            iou_thresh=args.iou_thresh,
+            topk_pre_nms=args.topk_pre_nms,
+            max_det=args.max_det,
+            mask_thresh=args.mask_thresh,
+            class_names=class_names,
+        )
+    else:
+        save_path = args.save_path if args.save_path else f"runs/inference/{source_path.stem}_pred{source_path.suffix}"
+        infer(
+            weights=args.weights,
+            source=args.source,
+            num_classes=args.num_classes,
+            image_size=args.img_size,
+            conf_thresh=args.conf_thresh,
+            iou_thresh=args.iou_thresh,
+            topk_pre_nms=args.topk_pre_nms,
+            max_det=args.max_det,
+            mask_thresh=args.mask_thresh,
+            save_path=save_path,
+            class_names=class_names,
+        )
