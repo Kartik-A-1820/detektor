@@ -65,7 +65,11 @@ def infer(
     """Run ChimeraODIS inference on one image and optionally save a visualization."""
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model = ChimeraODIS(num_classes=num_classes).to(device)
-    model.load_state_dict(torch.load(weights, map_location=device))
+    checkpoint = torch.load(weights, map_location=device)
+    if isinstance(checkpoint, dict) and "model_state" in checkpoint:
+        model.load_state_dict(checkpoint["model_state"], strict=True)
+    else:
+        model.load_state_dict(checkpoint, strict=True)
     model.eval()
 
     image_tensor, original_rgb, original_size = _prepare_image(source, image_size=image_size)
@@ -106,17 +110,17 @@ def infer(
 if __name__ == "__main__":
     import argparse
 
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--weights", type=str, default="chimera_last.pt")
-    parser.add_argument("--source", type=str, required=True)
-    parser.add_argument("--num-classes", type=int, default=1)
-    parser.add_argument("--img-size", type=int, default=512)
-    parser.add_argument("--conf-thresh", type=float, default=0.25)
-    parser.add_argument("--iou-thresh", type=float, default=0.6)
-    parser.add_argument("--topk-pre-nms", type=int, default=300)
-    parser.add_argument("--max-det", type=int, default=100)
-    parser.add_argument("--mask-thresh", type=float, default=0.5)
-    parser.add_argument("--save-path", type=str, default="")
+    parser = argparse.ArgumentParser(description="Run single-image Detektor inference")
+    parser.add_argument("--weights", type=str, default="chimera_last.pt", help="Path to model weights or checkpoint")
+    parser.add_argument("--source", type=str, required=True, help="Path to the input image")
+    parser.add_argument("--num-classes", type=int, default=1, help="Number of classes expected by the checkpoint")
+    parser.add_argument("--img-size", type=int, default=512, help="Square model input size")
+    parser.add_argument("--conf-thresh", type=float, default=0.25, help="Confidence threshold used before NMS")
+    parser.add_argument("--iou-thresh", type=float, default=0.6, help="IoU threshold used by NMS")
+    parser.add_argument("--topk-pre-nms", type=int, default=300, help="Maximum candidates kept before NMS")
+    parser.add_argument("--max-det", type=int, default=100, help="Maximum detections per image")
+    parser.add_argument("--mask-thresh", type=float, default=0.5, help="Threshold used to binarize predicted masks")
+    parser.add_argument("--save-path", type=str, default="", help="Optional output path for a visualization image")
     args = parser.parse_args()
 
     infer(

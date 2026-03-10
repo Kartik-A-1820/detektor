@@ -226,6 +226,36 @@ class ChimeraODIS(nn.Module):
             return loss_dict
         return loss_dict["loss_total"]
 
+    def forward_export(self, x: Tensor) -> Tuple[Tensor, Tensor, Tensor, Tensor, Tensor]:
+        """Run an ONNX-friendly tensor-only export forward path.
+
+        Input:
+            ``x``: image tensor with shape ``[B, 3, H, W]``.
+
+        Returns:
+            A tensor tuple containing:
+            - ``cls_flat``: ``[B, total_points, num_classes]``
+            - ``box_flat``: ``[B, total_points, 4]``
+            - ``obj_flat``: ``[B, total_points, 1]``
+            - ``mask_coeff_flat``: ``[B, total_points, proto_k]``
+            - ``proto``: ``[B, proto_k, Hp, Wp]``
+
+        Postprocessing such as decoding, NMS, confidence thresholding, and mask
+        reconstruction remains outside the exported graph.
+        """
+        outputs = self.forward(x)
+        cls_levels = outputs["det"]["cls"]
+        box_levels = outputs["det"]["box"]
+        obj_levels = outputs["det"]["obj"]
+        mask_coeff_levels = outputs["det"]["mask_coeff"]
+        proto = outputs["proto"]
+
+        cls_flat = flatten_prediction_levels(cls_levels)
+        box_flat = flatten_prediction_levels(box_levels)
+        obj_flat = flatten_prediction_levels(obj_levels)
+        mask_coeff_flat = flatten_mask_coefficients(mask_coeff_levels)
+        return cls_flat, box_flat, obj_flat, mask_coeff_flat, proto
+
     @torch.no_grad()
     def predict(
         self,
@@ -507,7 +537,21 @@ def smoke_test_predict() -> List[Dict[str, Tensor]]:
     return outputs
 
 
+def smoke_test_export() -> Tuple[Tensor, Tensor, Tensor, Tensor, Tensor]:
+    """Run a lightweight CPU smoke test for export-forward outputs."""
+    model = ChimeraODIS(num_classes=1, proto_k=24)
+    model.eval()
+
+    imgs = torch.randn(1, 3, 512, 512)
+    outputs = model.forward_export(imgs)
+    names = ("cls_flat", "box_flat", "obj_flat", "mask_coeff_flat", "proto")
+    for name, tensor in zip(names, outputs):
+        print(f"{name}: {tuple(tensor.shape)}")
+    return outputs
+
+
 if __name__ == "__main__":
     smoke_test()
     smoke_test_loss()
     smoke_test_predict()
+    smoke_test_export()

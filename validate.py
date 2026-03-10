@@ -18,6 +18,8 @@ from metrics import (
 )
 from models.chimera import ChimeraODIS
 from utils.benchmark import benchmark_forward, benchmark_predict
+from utils.collate import detection_segmentation_collate_fn
+from utils.data_config import apply_dataset_yaml_overrides, print_resolved_dataset_config
 from utils.results import prediction_to_serializable, predictions_to_coco_like, summarize_image_result
 
 
@@ -65,6 +67,7 @@ def _has_invalid_prediction(prediction: Dict[str, Tensor]) -> bool:
 
 def validate(
     config_path: str,
+    data_yaml: str | None = None,
     weights: str = "chimera_last.pt",
     batch_size: int = 4,
     conf_thresh: float = 0.25,
@@ -81,17 +84,35 @@ def validate(
 
     with open(config_path, "r", encoding="utf-8") as handle:
         cfg = yaml.safe_load(handle)
+    if data_yaml:
+        resolved_dataset = apply_dataset_yaml_overrides(cfg, data_yaml)
+        print_resolved_dataset_config(resolved_dataset)
 
-    device = torch.device(cfg["device"] if torch.cuda.is_available() else "cpu")
+    requested_device = cfg.get("device", "cpu")
+    if requested_device == "cuda" and not torch.cuda.is_available():
+        raise RuntimeError("CUDA was requested in the config, but CUDA is not available on this machine")
+    device = torch.device("cuda" if requested_device == "cuda" else "cpu")
     model = ChimeraODIS(
         num_classes=cfg["data"]["num_classes"],
         proto_k=cfg["model"]["proto_k"],
     ).to(device)
-    model.load_state_dict(torch.load(weights, map_location=device))
+    checkpoint = torch.load(weights, map_location=device)
+    if isinstance(checkpoint, dict) and "model_state" in checkpoint:
+        model.load_state_dict(checkpoint["model_state"], strict=True)
+    else:
+        model.load_state_dict(checkpoint, strict=True)
     model.eval()
 
     dataset = build_dataset(cfg, split="val")
-    loader = DataLoader(dataset, batch_size=batch_size, shuffle=False, num_workers=0)
+    if len(dataset) == 0:
+        raise RuntimeError("Validation dataset is empty")
+    loader = DataLoader(
+        dataset,
+        batch_size=batch_size,
+        shuffle=False,
+        num_workers=0,
+        collate_fn=detection_segmentation_collate_fn,
+    )
 
     all_predictions: List[Dict[str, Tensor]] = []
     all_targets: List[Dict[str, Tensor]] = []
@@ -104,8 +125,7 @@ def validate(
 
     for imgs, targets in loader:
         imgs = imgs.to(device)
-        target_list = list(targets) if isinstance(targets, Sequence) and not isinstance(targets, dict) else [targets]
-        normalized_targets = _normalize_validation_targets(imgs, target_list)
+        normalized_targets = _normalize_validation_targets(imgs, targets)
         original_sizes = [(imgs.shape[-2], imgs.shape[-1]) for _ in range(imgs.shape[0])]
 
         predictions = model.predict(
@@ -216,18 +236,19 @@ def smoke_test_validation_metrics() -> Dict[str, Any]:
 if __name__ == "__main__":
     import argparse
 
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--config", type=str, default="configs/chimera_s_512.yaml")
-    parser.add_argument("--weights", type=str, default="chimera_last.pt")
-    parser.add_argument("--batch-size", type=int, default=4)
-    parser.add_argument("--conf-thresh", type=float, default=0.25)
-    parser.add_argument("--iou-thresh", type=float, default=0.5)
-    parser.add_argument("--topk-pre-nms", type=int, default=300)
-    parser.add_argument("--max-det", type=int, default=100)
-    parser.add_argument("--mask-thresh", type=float, default=0.5)
-    parser.add_argument("--save-json", type=str, default="")
-    parser.add_argument("--benchmark", action="store_true")
-    parser.add_argument("--smoke-test", action="store_true")
+    parser = argparse.ArgumentParser(description="Validate Detektor weights on a configured validation split")
+    parser.add_argument("--config", type=str, default="configs/chimera_s_512.yaml", help="Path to the base validation config YAML")
+    parser.add_argument("--data-yaml", type=str, default="", help="Optional YOLO/Roboflow dataset YAML used to override validation roots and class metadata")
+    parser.add_argument("--weights", type=str, default="chimera_last.pt", help="Path to model weights or checkpoint")
+    parser.add_argument("--batch-size", type=int, default=4, help="Validation batch size")
+    parser.add_argument("--conf-thresh", type=float, default=0.25, help="Confidence threshold used before NMS")
+    parser.add_argument("--iou-thresh", type=float, default=0.5, help="IoU threshold used for NMS and metrics")
+    parser.add_argument("--topk-pre-nms", type=int, default=300, help="Maximum number of candidates kept before NMS")
+    parser.add_argument("--max-det", type=int, default=100, help="Maximum detections per image after NMS")
+    parser.add_argument("--mask-thresh", type=float, default=0.5, help="Mask threshold for binary mask generation")
+    parser.add_argument("--save-json", type=str, default="", help="Optional path to save validation results JSON")
+    parser.add_argument("--benchmark", action="store_true", help="Run lightweight forward and predict benchmarks during validation")
+    parser.add_argument("--smoke-test", action="store_true", help="Run only the lightweight synthetic validation smoke test")
     args = parser.parse_args()
 
     if args.smoke_test:
@@ -235,6 +256,7 @@ if __name__ == "__main__":
     else:
         validate(
             config_path=args.config,
+            data_yaml=args.data_yaml or None,
             weights=args.weights,
             batch_size=args.batch_size,
             conf_thresh=args.conf_thresh,

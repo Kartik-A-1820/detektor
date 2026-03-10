@@ -6,3 +6,6 @@ tqdm
 numpy
 matplotlib
 pycocotools
+fastapi
+uvicorn
+python-multipart
