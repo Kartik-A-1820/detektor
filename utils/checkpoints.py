@@ -12,6 +12,7 @@ def save_checkpoint(
     model: nn.Module,
     optimizer: torch.optim.Optimizer | None = None,
     scaler: torch.cuda.amp.GradScaler | None = None,
+    scheduler: torch.optim.lr_scheduler.LRScheduler | None = None,
     epoch: int = 0,
     global_step: int = 0,
     best_metric: float | None = None,
@@ -28,6 +29,7 @@ def save_checkpoint(
         "model_state": model.state_dict(),
         "optimizer_state": optimizer.state_dict() if optimizer is not None else None,
         "scaler_state": scaler.state_dict() if scaler is not None else None,
+        "scheduler_state": scheduler.state_dict() if scheduler is not None else None,
         "epoch": int(epoch),
         "global_step": int(global_step),
         "best_metric": best_metric,
@@ -47,6 +49,7 @@ def load_checkpoint(
     model: nn.Module,
     optimizer: torch.optim.Optimizer | None = None,
     scaler: torch.cuda.amp.GradScaler | None = None,
+    scheduler: torch.optim.lr_scheduler.LRScheduler | None = None,
     map_location: str | torch.device | None = None,
     strict: bool = True,
 ) -> Dict[str, Any]:
@@ -59,6 +62,7 @@ def load_checkpoint(
             "global_step": 0,
             "best_metric": None,
             "ema_state": None,
+            "scheduler_state": None,
             "message": f"Checkpoint not found: {checkpoint_path}",
         }
 
@@ -73,12 +77,17 @@ def load_checkpoint(
     if scaler is not None and scaler_state is not None:
         scaler.load_state_dict(scaler_state)
 
+    scheduler_state = checkpoint.get("scheduler_state")
+    if scheduler is not None and scheduler_state is not None:
+        scheduler.load_state_dict(scheduler_state)
+
     return {
         "loaded": True,
         "epoch": int(checkpoint.get("epoch", 0)),
         "global_step": int(checkpoint.get("global_step", 0)),
         "best_metric": checkpoint.get("best_metric"),
+        "scheduler_state": checkpoint.get("scheduler_state"),
         "config": checkpoint.get("config"),
         "ema_state": checkpoint.get("ema_state"),
-        "message": f"Loaded checkpoint: {checkpoint_path}",
+        "message": f"Loaded checkpoint from {checkpoint_path}",
     }

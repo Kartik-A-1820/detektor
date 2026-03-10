@@ -86,11 +86,44 @@ def train(
         collate_fn=detection_segmentation_collate_fn,
     )
 
-    optimizer = torch.optim.AdamW(
-        model.parameters(),
-        lr=cfg["train"]["lr"],
-        weight_decay=cfg["train"]["weight_decay"],
-    )
+    optimizer_type = cfg["train"].get("optimizer", "adamw").lower()
+    lr = cfg["train"]["lr"]
+    weight_decay = cfg["train"]["weight_decay"]
+    
+    if optimizer_type == "sgd":
+        momentum = cfg["train"].get("momentum", 0.937)
+        optimizer = torch.optim.SGD(
+            model.parameters(),
+            lr=lr,
+            momentum=momentum,
+            weight_decay=weight_decay,
+            nesterov=True,
+        )
+    elif optimizer_type == "adamw":
+        optimizer = torch.optim.AdamW(
+            model.parameters(),
+            lr=lr,
+            weight_decay=weight_decay,
+        )
+    else:
+        raise ValueError(f"Unsupported optimizer: {optimizer_type}. Choose 'adamw' or 'sgd'.")
+    
+    scheduler_type = cfg["train"].get("scheduler", "cosine").lower()
+    warmup_epochs = cfg["train"].get("warmup_epochs", 3)
+    epochs = cfg["train"]["epochs"]
+    
+    if scheduler_type == "cosine":
+        def lr_lambda(epoch: int) -> float:
+            if epoch < warmup_epochs:
+                return (epoch + 1) / warmup_epochs
+            progress = (epoch - warmup_epochs) / max(epochs - warmup_epochs, 1)
+            return 0.5 * (1.0 + torch.cos(torch.tensor(progress * 3.14159265359)).item())
+        scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda=lr_lambda)
+    elif scheduler_type == "none":
+        scheduler = None
+    else:
+        raise ValueError(f"Unsupported scheduler: {scheduler_type}. Choose 'cosine' or 'none'.")
+    
     amp_enabled = bool(cfg["train"].get("amp", False) and device.type == "cuda")
     scaler = torch.amp.GradScaler("cuda", enabled=amp_enabled)
     ema = ModelEMA(model, decay=float(cfg["train"].get("ema_decay", 0.9998))) if use_ema else None
@@ -112,6 +145,7 @@ def train(
             model=model,
             optimizer=optimizer,
             scaler=scaler,
+            scheduler=scheduler,
             map_location=device,
         )
         print(resume_state["message"])
@@ -131,6 +165,9 @@ def train(
             "device": str(device),
             "use_ema": use_ema,
             "grad_clip_norm": grad_clip_norm,
+            "optimizer": optimizer_type,
+            "scheduler": scheduler_type,
+            "warmup_epochs": warmup_epochs,
         },
     )
 
@@ -149,8 +186,8 @@ def train(
             imgs = imgs.to(device, non_blocking=device.type == "cuda")
 
             with torch.amp.autocast("cuda", enabled=amp_enabled):
-                loss = model.compute_loss(imgs, targets, debug=debug_loss)
-                loss = loss / grad_accum
+                loss_dict = model.compute_loss(imgs, targets, return_dict=True, debug=debug_loss)
+                loss = loss_dict["loss_total"] / grad_accum
 
             if not torch.isfinite(loss).all():
                 print(f"warning: non-finite loss encountered at epoch={epoch + 1}, step={step_index}; skipping step")
@@ -179,22 +216,37 @@ def train(
             log_row = {
                 "epoch": epoch + 1,
                 "step": global_step,
-                "loss": loss_value,
+                "loss_total": loss_value,
+                "loss_cls": float(loss_dict["loss_cls"].detach()),
+                "loss_box": float(loss_dict["loss_box"].detach()),
+                "loss_obj": float(loss_dict["loss_obj"].detach()),
+                "loss_mask": float(loss_dict["loss_mask"].detach()),
+                "loss_mask_bce": float(loss_dict["loss_mask_bce"].detach()),
+                "loss_mask_dice": float(loss_dict["loss_mask_dice"].detach()),
+                "num_fg": float(loss_dict["num_fg"].detach()),
+                "num_mask_pos": float(loss_dict["num_mask_pos"].detach()),
                 "lr": current_lr,
             }
             append_metrics_row(metrics_csv_path, log_row)
             append_jsonl(metrics_jsonl_path, log_row)
 
-        epoch_loss = epoch_loss_sum / max(epoch_steps, 1)
-        last_epoch_loss = epoch_loss
-        is_best = epoch_loss < best_metric
-        best_metric = min(best_metric, epoch_loss)
+        epoch_loss_avg = epoch_loss_sum / max(epoch_steps, 1)
+        current_lr = optimizer.param_groups[0]['lr']
+        pbar.set_postfix({"loss": f"{epoch_loss_avg:.3g}", "lr": f"{current_lr:.3g}"})
+        pbar.close()
+        
+        if scheduler is not None:
+            scheduler.step()
+
+        is_best = epoch_loss_avg < best_metric
+        best_metric = min(best_metric, epoch_loss_avg)
 
         save_checkpoint(
             checkpoint_path=last_checkpoint_path,
             model=model,
             optimizer=optimizer,
             scaler=scaler,
+            scheduler=scheduler,
             epoch=epoch,
             global_step=global_step,
             best_metric=best_metric,
@@ -206,12 +258,12 @@ def train(
 
         epoch_summary = {
             "epoch": epoch + 1,
-            "epoch_loss": epoch_loss,
+            "epoch_loss": epoch_loss_avg,
             "best_metric": best_metric,
             "global_step": global_step,
         }
         append_jsonl(out_dir / "epoch_summaries.jsonl", epoch_summary)
-        print(f"epoch={epoch + 1} loss={epoch_loss:.6f} best={best_metric:.6f}")
+        print(f"epoch={epoch + 1} loss={epoch_loss_avg:.6f} best={best_metric:.6f}")
         print(vram_report("After epoch: "))
 
     final_weights_path = out_dir / "chimera_final_weights.pt"
