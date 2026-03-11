@@ -38,7 +38,7 @@ def _overlay_masks(image: Tensor | None, masks: Tensor) -> Tensor | None:
     return overlay
 
 
-def _prepare_image(source: str, image_size: int = 512) -> tuple[Tensor, Tensor, tuple[int, int]]:
+def _prepare_image(source: str, image_size: int = 512) -> tuple[Tensor, "np.ndarray", tuple[int, int]]:
     """Read and preprocess an image for ChimeraODIS inference."""
     image_bgr = cv2.imread(source)
     if image_bgr is None:
@@ -48,7 +48,8 @@ def _prepare_image(source: str, image_size: int = 512) -> tuple[Tensor, Tensor, 
     resized_bgr = cv2.resize(image_bgr, (image_size, image_size))
     image_rgb = cv2.cvtColor(resized_bgr, cv2.COLOR_BGR2RGB)
     image_tensor = torch.from_numpy(image_rgb.transpose(2, 0, 1)).float() / 255.0
-    return image_tensor.unsqueeze(0), torch.from_numpy(cv2.cvtColor(image_bgr, cv2.COLOR_BGR2RGB)), (original_height, original_width)
+    original_rgb_numpy = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2RGB)
+    return image_tensor.unsqueeze(0), original_rgb_numpy, (original_height, original_width)
 
 
 def _detect_num_classes(checkpoint: Dict) -> int:
@@ -120,16 +121,13 @@ def infer(
         print(f"scores: {score_list}")
     print(f"mask_count: {int(predictions['masks'].shape[0])}")
 
-    vis_tensor = original_rgb.to(device=device, dtype=torch.float32)
-    vis_tensor = _overlay_masks(vis_tensor, predictions["masks"].to(device=device))
-    if vis_tensor is not None:
-        vis_image = vis_tensor.clamp(0, 255).byte().cpu().numpy()
-        vis_image = draw_boxes(vis_image, predictions["boxes"].detach().cpu().numpy())
-        vis_bgr = cv2.cvtColor(vis_image, cv2.COLOR_RGB2BGR)
-        if save_path is not None:
-            Path(save_path).parent.mkdir(parents=True, exist_ok=True)
-            cv2.imwrite(save_path, vis_bgr)
-            print(f"saved: {save_path}")
+    vis_image = original_rgb.copy()
+    vis_image = draw_boxes(vis_image, predictions["boxes"].detach().cpu().numpy())
+    vis_bgr = cv2.cvtColor(vis_image, cv2.COLOR_RGB2BGR)
+    if save_path is not None:
+        Path(save_path).parent.mkdir(parents=True, exist_ok=True)
+        cv2.imwrite(save_path, vis_bgr)
+        print(f"saved: {save_path}")
 
     return predictions
 
@@ -202,16 +200,13 @@ def infer_folder(
             else:
                 print(f"  detections: {num_det}, labels: {label_list}")
             
-            vis_tensor = original_rgb.to(device=device, dtype=torch.float32)
-            vis_tensor = _overlay_masks(vis_tensor, predictions["masks"].to(device=device))
-            if vis_tensor is not None:
-                vis_image = vis_tensor.clamp(0, 255).byte().cpu().numpy()
-                vis_image = draw_boxes(vis_image, predictions["boxes"].detach().cpu().numpy())
-                vis_bgr = cv2.cvtColor(vis_image, cv2.COLOR_RGB2BGR)
-                
-                output_file = output_path / f"{image_file.stem}_pred{image_file.suffix}"
-                cv2.imwrite(str(output_file), vis_bgr)
-                print(f"  saved: {output_file.name}")
+            vis_image = original_rgb.copy()
+            vis_image = draw_boxes(vis_image, predictions["boxes"].detach().cpu().numpy())
+            vis_bgr = cv2.cvtColor(vis_image, cv2.COLOR_RGB2BGR)
+            
+            output_file = output_path / f"{image_file.stem}_pred{image_file.suffix}"
+            cv2.imwrite(str(output_file), vis_bgr)
+            print(f"  saved: {output_file.name}")
         
         except Exception as e:
             print(f"  error processing {image_file.name}: {e}")
