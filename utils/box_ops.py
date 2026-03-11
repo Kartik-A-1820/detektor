@@ -35,6 +35,10 @@ def distances_to_boxes(points: Tensor, distances: Tensor) -> Tensor:
     if distances.shape[1] != points.shape[0]:
         raise AssertionError("Point count and distance count must match")
 
+    # Sanitize distances to prevent NaN from model initialization
+    distances = torch.nan_to_num(distances, nan=0.0, posinf=1000.0, neginf=0.0)
+    distances = distances.clamp(min=-1000.0, max=1000.0)
+    
     positive = F.relu(distances)
     px = points[:, 0].view(1, -1)
     py = points[:, 1].view(1, -1)
@@ -48,7 +52,13 @@ def distances_to_boxes(points: Tensor, distances: Tensor) -> Tensor:
     y1 = py - top
     x2 = px + right
     y2 = py + bottom
-    return torch.stack((x1, y1, x2, y2), dim=-1)
+    
+    # Sanitize final boxes
+    boxes = torch.stack((x1, y1, x2, y2), dim=-1)
+    boxes = torch.nan_to_num(boxes, nan=0.0, posinf=1000.0, neginf=0.0)
+    boxes = boxes.clamp(min=-1000.0, max=1000.0)
+    
+    return boxes
 
 
 def box_area(boxes: Tensor) -> Tensor:
@@ -79,6 +89,12 @@ def ciou_loss(pred_boxes: Tensor, target_boxes: Tensor) -> Tensor:
     px1, py1, px2, py2 = pred_boxes.unbind(dim=-1)
     tx1, ty1, tx2, ty2 = target_boxes.unbind(dim=-1)
 
+    # Ensure boxes are valid (x2 > x1, y2 > y1)
+    px1, px2 = torch.minimum(px1, px2), torch.maximum(px1, px2)
+    py1, py2 = torch.minimum(py1, py2), torch.maximum(py1, py2)
+    tx1, tx2 = torch.minimum(tx1, tx2), torch.maximum(tx1, tx2)
+    ty1, ty2 = torch.minimum(ty1, ty2), torch.maximum(ty1, ty2)
+
     inter_x1 = torch.maximum(px1, tx1)
     inter_y1 = torch.maximum(py1, ty1)
     inter_x2 = torch.minimum(px2, tx2)
@@ -88,10 +104,10 @@ def ciou_loss(pred_boxes: Tensor, target_boxes: Tensor) -> Tensor:
     inter_h = (inter_y2 - inter_y1).clamp(min=0)
     inter = inter_w * inter_h
 
-    area_p = ((px2 - px1).clamp(min=0) * (py2 - py1).clamp(min=0))
-    area_t = ((tx2 - tx1).clamp(min=0) * (ty2 - ty1).clamp(min=0))
-    union = area_p + area_t - inter
-    iou = inter / union.clamp(min=EPS)
+    area_p = ((px2 - px1).clamp(min=EPS) * (py2 - py1).clamp(min=EPS))
+    area_t = ((tx2 - tx1).clamp(min=EPS) * (ty2 - ty1).clamp(min=EPS))
+    union = (area_p + area_t - inter).clamp(min=EPS)
+    iou = (inter / union).clamp(min=0.0, max=1.0)
 
     pcx = (px1 + px2) * 0.5
     pcy = (py1 + py2) * 0.5
@@ -112,7 +128,19 @@ def ciou_loss(pred_boxes: Tensor, target_boxes: Tensor) -> Tensor:
     tw = (tx2 - tx1).clamp(min=EPS)
     th = (ty2 - ty1).clamp(min=EPS)
 
+    # Robust aspect ratio computation
     v = (4.0 / (torch.pi ** 2)) * torch.pow(torch.atan(tw / th) - torch.atan(pw / ph), 2)
-    alpha = v / (1.0 - iou + v).clamp(min=EPS)
-    ciou = iou - (center_dist / enc_diag.clamp(min=EPS)) - alpha * v
-    return 1.0 - ciou
+    v = v.clamp(min=0.0, max=4.0)  # Clamp to reasonable range
+    
+    # Robust alpha computation
+    alpha_denom = (1.0 - iou + v).clamp(min=EPS)
+    alpha = (v / alpha_denom).clamp(min=0.0, max=1.0)
+    
+    # Robust distance ratio
+    dist_ratio = (center_dist / enc_diag.clamp(min=EPS)).clamp(min=0.0, max=1.0)
+    
+    # Compute CIoU with clamping
+    ciou = iou - dist_ratio - alpha * v
+    ciou = ciou.clamp(min=-1.0, max=1.0)
+    
+    return (1.0 - ciou).clamp(min=0.0, max=2.0)

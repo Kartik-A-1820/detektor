@@ -10,14 +10,21 @@ from torch.utils.data import DataLoader
 from tqdm import tqdm
 
 from datasets import build_dataset
-from engine.ema import ModelEMA
 from models.chimera import ChimeraODIS
 from utils.checkpoints import load_checkpoint, save_checkpoint
 from utils.collate import detection_segmentation_collate_fn
 from utils.data_config import apply_dataset_yaml_overrides, print_resolved_dataset_config
+from engine.ema import ModelEMA
 from utils.logging_utils import append_jsonl, append_metrics_row, write_json
 from utils.model_info import get_model_info
 from utils.repro import set_seed
+from utils.reporting import (
+    load_train_metrics,
+    plot_loss_curves,
+    plot_learning_rate,
+    plot_epoch_metrics,
+    generate_metrics_summary,
+)
 from utils.vram import set_vram_cap, vram_report
 
 
@@ -49,6 +56,8 @@ def train(
     use_ema: bool = False,
     grad_clip_norm: float = 0.0,
     debug_loss: bool = False,
+    run_val: bool = False,
+    val_freq: int = 1,
 ) -> Dict[str, Any]:
     """Run the production-hardened training loop with safe resume and logging helpers."""
     with open(config_path, "r", encoding="utf-8") as handle:
@@ -74,6 +83,14 @@ def train(
     dataset = build_dataset(cfg, split="train")
     if len(dataset) == 0:
         raise RuntimeError("Training dataset is empty")
+    
+    # Get task mode from dataset
+    task_mode = getattr(dataset, 'task_mode', None)
+    if task_mode is not None:
+        task_mode_str = task_mode.value if hasattr(task_mode, 'value') else str(task_mode)
+    else:
+        task_mode_str = "segment"  # Default to segment mode
+    print(f"Training with task mode: {task_mode_str}")
 
     batch_size = int(cfg["train"]["batch_size"])
     num_workers = int(cfg["train"].get("num_workers", 0))
@@ -177,6 +194,10 @@ def train(
 
     for epoch in range(start_epoch, epochs):
         model.train()
+        
+        # Update epoch for warmup in detection loss
+        model.detection_loss.current_epoch = epoch
+        
         optimizer.zero_grad(set_to_none=True)
         epoch_loss_sum = 0.0
         epoch_steps = 0
@@ -186,7 +207,7 @@ def train(
             imgs = imgs.to(device, non_blocking=device.type == "cuda")
 
             with torch.amp.autocast("cuda", enabled=amp_enabled):
-                loss_dict = model.compute_loss(imgs, targets, return_dict=True, debug=debug_loss)
+                loss_dict = model.compute_loss(imgs, targets, return_dict=True, debug=debug_loss, task=task_mode_str)
                 loss = loss_dict["loss_total"] / grad_accum
 
             if not torch.isfinite(loss).all():
@@ -197,9 +218,29 @@ def train(
             scaler.scale(loss).backward()
 
             if step_index % grad_accum == 0 or step_index == len(loader):
+                # Unscale gradients for clipping
+                scaler.unscale_(optimizer)
+                
+                # Check for NaN/Inf gradients before clipping
+                has_nan_grad = False
+                for param in model.parameters():
+                    if param.grad is not None:
+                        if not torch.isfinite(param.grad).all():
+                            has_nan_grad = True
+                            break
+                
+                if has_nan_grad:
+                    print(f"warning: non-finite gradients at epoch={epoch + 1}, step={step_index}; skipping step")
+                    optimizer.zero_grad(set_to_none=True)
+                    scaler.update()
+                    continue
+                
+                # Clip gradients
                 if grad_clip_norm > 0.0:
-                    scaler.unscale_(optimizer)
-                    clip_grad_norm_(model.parameters(), max_norm=grad_clip_norm)
+                    total_norm = clip_grad_norm_(model.parameters(), max_norm=grad_clip_norm)
+                    if total_norm > grad_clip_norm * 10:
+                        print(f"warning: large gradient norm {total_norm:.2f} at epoch={epoch + 1}, step={step_index}")
+                
                 scaler.step(optimizer)
                 scaler.update()
                 optimizer.zero_grad(set_to_none=True)
@@ -265,6 +306,52 @@ def train(
         append_jsonl(out_dir / "epoch_summaries.jsonl", epoch_summary)
         print(f"epoch={epoch + 1} loss={epoch_loss_avg:.6f} best={best_metric:.6f}")
         print(vram_report("After epoch: "))
+        
+        # Run validation if enabled
+        if run_val and (epoch + 1) % val_freq == 0:
+            print(f"\nRunning validation at epoch {epoch + 1}...")
+            try:
+                from validate import validate
+                
+                val_metrics = validate(
+                    weights=str(last_checkpoint_path),
+                    data_yaml=data_yaml if data_yaml else cfg.get("data", {}).get("yaml", ""),
+                    split="val",
+                    img_size=cfg["model"].get("img_size", 512),
+                    batch_size=cfg["train"].get("batch_size", 8),
+                    conf_thresh=0.25,
+                    iou_thresh=0.6,
+                    device=str(device),
+                )
+                
+                # Log validation metrics
+                val_log = {
+                    "epoch": epoch + 1,
+                    "val_precision": val_metrics.get("precision", 0.0),
+                    "val_recall": val_metrics.get("recall", 0.0),
+                    "val_map50": val_metrics.get("map50", 0.0),
+                    "val_mean_iou": val_metrics.get("mean_iou", 0.0),
+                }
+                append_jsonl(out_dir / "val_metrics.jsonl", val_log)
+                print(f"Validation: P={val_log['val_precision']:.3f} R={val_log['val_recall']:.3f} mAP50={val_log['val_map50']:.3f}")
+            except Exception as e:
+                print(f"warning: validation failed: {e}")
+        
+        # Auto-generate plots after each epoch
+        try:
+            metrics_df = load_train_metrics(metrics_csv_path)
+            if metrics_df is not None and len(metrics_df) > 0:
+                plots_dir = out_dir / "plots"
+                plots_dir.mkdir(exist_ok=True)
+                
+                # Generate plots
+                plot_loss_curves(metrics_df, plots_dir)
+                plot_learning_rate(metrics_df, plots_dir)
+                plot_epoch_metrics(metrics_df, plots_dir)
+                
+                print(f"Generated training plots in {plots_dir}")
+        except Exception as e:
+            print(f"warning: failed to generate plots: {e}")
 
     final_weights_path = out_dir / "chimera_final_weights.pt"
     torch.save(model.state_dict(), final_weights_path)
@@ -279,6 +366,40 @@ def train(
         "use_ema": use_ema,
     }
     write_json(out_dir / "train_summary.json", final_summary)
+    
+    # Generate final comprehensive training report
+    print("\n" + "=" * 60)
+    print("GENERATING FINAL TRAINING REPORT")
+    print("=" * 60)
+    try:
+        metrics_df = load_train_metrics(metrics_csv_path)
+        if metrics_df is not None and len(metrics_df) > 0:
+            plots_dir = out_dir / "plots"
+            plots_dir.mkdir(exist_ok=True)
+            
+            # Generate all plots
+            plot_loss_curves(metrics_df, plots_dir)
+            plot_learning_rate(metrics_df, plots_dir)
+            plot_epoch_metrics(metrics_df, plots_dir)
+            
+            # Generate training summary
+            summary_path = out_dir / "training_summary.json"
+            generate_metrics_summary(metrics_df, None, None, summary_path)
+            
+            print(f"\n✓ Training plots saved to: {plots_dir}")
+            print(f"✓ Training summary saved to: {summary_path}")
+            print(f"✓ Metrics CSV: {metrics_csv_path}")
+            print(f"✓ Best checkpoint: {best_checkpoint_path}")
+            print(f"✓ Final weights: {final_weights_path}")
+        else:
+            print("warning: no metrics data available for report generation")
+    except Exception as e:
+        print(f"warning: failed to generate final report: {e}")
+    
+    print("=" * 60)
+    print("TRAINING COMPLETE")
+    print("=" * 60)
+    
     return final_summary
 
 
@@ -293,6 +414,8 @@ if __name__ == "__main__":
     parser.add_argument("--ema", action="store_true", help="Enable exponential moving average tracking for model weights")
     parser.add_argument("--grad-clip", type=float, default=0.0, help="Gradient clipping max-norm; 0 disables clipping")
     parser.add_argument("--debug-loss", action="store_true", help="Enable detailed loss component debugging output")
+    parser.add_argument("--run-val", action="store_true", help="Run validation during training")
+    parser.add_argument("--val-freq", type=int, default=1, help="Validation frequency in epochs (default: 1)")
     args = parser.parse_args()
 
     train(
@@ -303,4 +426,6 @@ if __name__ == "__main__":
         use_ema=args.ema,
         grad_clip_norm=args.grad_clip,
         debug_loss=args.debug_loss,
+        run_val=args.run_val,
+        val_freq=args.val_freq,
     )

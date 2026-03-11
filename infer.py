@@ -77,6 +77,7 @@ def infer(
     mask_thresh: float = 0.5,
     save_path: Optional[str] = None,
     class_names: Optional[List[str]] = None,
+    task: str = "segment",
 ) -> Dict[str, Tensor]:
     """Run ChimeraODIS inference on one image and optionally save a visualization."""
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -104,6 +105,7 @@ def infer(
         topk_pre_nms=topk_pre_nms,
         max_det=max_det,
         mask_thresh=mask_thresh,
+        task=task,
     )[0]
 
     num_det = int(predictions["boxes"].shape[0])
@@ -119,7 +121,9 @@ def infer(
         print(f"detections: {num_det}")
         print(f"labels: {label_list}")
         print(f"scores: {score_list}")
-    print(f"mask_count: {int(predictions['masks'].shape[0])}")
+    
+    if task == "segment" and "masks" in predictions:
+        print(f"mask_count: {int(predictions['masks'].shape[0])}")
 
     vis_image = original_rgb.copy()
     vis_image = draw_boxes(vis_image, predictions["boxes"].detach().cpu().numpy())
@@ -144,6 +148,7 @@ def infer_folder(
     max_det: int = 100,
     mask_thresh: float = 0.5,
     class_names: Optional[List[str]] = None,
+    task: str = "segment",
 ) -> None:
     """Run inference on all images in a folder and save visualizations."""
     source_path = Path(source_dir)
@@ -189,6 +194,7 @@ def infer_folder(
                 topk_pre_nms=topk_pre_nms,
                 max_det=max_det,
                 mask_thresh=mask_thresh,
+                task=task,
             )[0]
             
             num_det = int(predictions["boxes"].shape[0])
@@ -231,6 +237,7 @@ if __name__ == "__main__":
     parser.add_argument("--max-det", type=int, default=100, help="Maximum detections per image")
     parser.add_argument("--mask-thresh", type=float, default=0.5, help="Threshold used to binarize predicted masks")
     parser.add_argument("--save-path", type=str, default="", help="Output path for single image or folder for batch")
+    parser.add_argument("--task", type=str, default="segment", choices=["detect", "segment"], help="Task mode: 'detect' (boxes only) or 'segment' (boxes + masks)")
     args = parser.parse_args()
     
     class_names = None
@@ -256,6 +263,7 @@ if __name__ == "__main__":
             max_det=args.max_det,
             mask_thresh=args.mask_thresh,
             class_names=class_names,
+            task=args.task,
         )
     else:
         save_path = args.save_path if args.save_path else f"runs/inference/{source_path.stem}_pred{source_path.suffix}"
@@ -271,4 +279,5 @@ if __name__ == "__main__":
             mask_thresh=args.mask_thresh,
             save_path=save_path,
             class_names=class_names,
+            task=args.task,
         )

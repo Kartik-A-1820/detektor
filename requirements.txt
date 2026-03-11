@@ -9,3 +9,6 @@ pycocotools
 fastapi
 uvicorn
 python-multipart
+gradio
+requests
+onnxruntime

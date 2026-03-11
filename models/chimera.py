@@ -60,7 +60,10 @@ class ChimeraODIS(nn.Module):
             hidden_channels=max(neck_channels[0] // 2, 64),
             proto_k=proto_k,
         )
-        self.detection_loss = DetectionLoss(num_classes=num_classes)
+        self.detection_loss = DetectionLoss(
+            num_classes=num_classes,
+            label_smoothing=0.0,  # Can be tuned for stability (0.0-0.1)
+        )
         self.segmentation_loss = SegmentationLoss()
         self.mask_weight = mask_weight
 
@@ -169,6 +172,7 @@ class ChimeraODIS(nn.Module):
         targets: Sequence[Any],
         return_dict: bool = False,
         debug: bool = False,
+        task: str = "segment",
     ) -> Tensor | Dict[str, Tensor]:
         """Compute detection loss from raw model outputs and normalized xyxy targets."""
         outputs = self.forward(imgs)
@@ -204,14 +208,29 @@ class ChimeraODIS(nn.Module):
             strides=strides,
             targets=prepared_targets,
         )
-        mask_loss_dict = self._compute_mask_losses(
-            prototypes=proto,
-            mask_coefficients=flat_mask_coeff,
-            assignments=det_loss_dict["assignments"],
-            targets=prepared_targets,
-            image_size=(imgs.shape[-2], imgs.shape[-1]),
-        )
-        loss_total = det_loss_dict["loss_total"] + self.mask_weight * mask_loss_dict["loss_mask"]
+        
+        # Task-aware mask loss computation
+        if task == "detect":
+            # Detection only - skip mask loss
+            zero = proto.sum() * 0.0
+            mask_loss_dict = {
+                "loss_mask_bce": zero,
+                "loss_mask_dice": zero,
+                "loss_mask": zero,
+                "num_mask_pos": zero,
+            }
+            loss_total = det_loss_dict["loss_total"]
+        else:
+            # Segmentation mode - compute mask loss
+            mask_loss_dict = self._compute_mask_losses(
+                prototypes=proto,
+                mask_coefficients=flat_mask_coeff,
+                assignments=det_loss_dict["assignments"],
+                targets=prepared_targets,
+                image_size=(imgs.shape[-2], imgs.shape[-1]),
+            )
+            loss_total = det_loss_dict["loss_total"] + self.mask_weight * mask_loss_dict["loss_mask"]
+        
         loss_dict = {
             "loss_total": loss_total,
             "loss_cls": det_loss_dict["loss_cls"],
@@ -278,6 +297,7 @@ class ChimeraODIS(nn.Module):
         max_det: int = 100,
         mask_thresh: float = 0.5,
         return_mask_probs: bool = False,
+        task: str = "segment",
     ) -> List[Dict[str, Tensor]]:
         """Run lightweight inference postprocessing for detection and instance segmentation.
 
@@ -368,43 +388,48 @@ class ChimeraODIS(nn.Module):
             kept_labels = labels_i[keep]
             kept_coeff = mask_coeff_i[keep]
 
-            proto_per_image = proto[batch_index]
-            proto_size = (proto_per_image.shape[-2], proto_per_image.shape[-1])
-            mask_logits = compose_instance_masks(proto_per_image, kept_coeff)
-            proto_boxes = boxes_to_proto_coordinates(
-                kept_boxes,
-                image_size=model_image_size,
-                proto_size=proto_size,
-            )
-            mask_logits = crop_mask_region(mask_logits, proto_boxes)
-            mask_probs = upsample_masks_to_image(mask_logits.sigmoid(), model_image_size)
-            masks = (
-                mask_probs
-                if return_mask_probs
-                else threshold_masks(mask_probs, threshold=mask_thresh)
-            )
-
             scaled_boxes = rescale_boxes(
                 boxes=kept_boxes,
                 from_size=model_image_size,
                 to_size=original_sizes[batch_index],
             )
-            if original_sizes[batch_index] != model_image_size:
-                masks = upsample_masks_to_image(
-                    masks.to(dtype=imgs.dtype),
-                    image_size=original_sizes[batch_index],
+            
+            # Task-aware mask generation
+            result = {
+                "boxes": scaled_boxes,
+                "scores": kept_scores,
+                "labels": kept_labels,
+            }
+            
+            if task == "segment":
+                # Generate masks for segmentation mode
+                proto_per_image = proto[batch_index]
+                proto_size = (proto_per_image.shape[-2], proto_per_image.shape[-1])
+                mask_logits = compose_instance_masks(proto_per_image, kept_coeff)
+                proto_boxes = boxes_to_proto_coordinates(
+                    kept_boxes,
+                    image_size=model_image_size,
+                    proto_size=proto_size,
                 )
-                if not return_mask_probs:
-                    masks = masks >= 0.5
+                mask_logits = crop_mask_region(mask_logits, proto_boxes)
+                mask_probs = upsample_masks_to_image(mask_logits.sigmoid(), model_image_size)
+                masks = (
+                    mask_probs
+                    if return_mask_probs
+                    else threshold_masks(mask_probs, threshold=mask_thresh)
+                )
 
-            predictions.append(
-                {
-                    "boxes": scaled_boxes,
-                    "scores": kept_scores,
-                    "labels": kept_labels,
-                    "masks": masks,
-                }
-            )
+                if original_sizes[batch_index] != model_image_size:
+                    masks = upsample_masks_to_image(
+                        masks.to(dtype=imgs.dtype),
+                        image_size=original_sizes[batch_index],
+                    )
+                    if not return_mask_probs:
+                        masks = masks >= 0.5
+                
+                result["masks"] = masks
+
+            predictions.append(result)
         return predictions
 
     def _compute_mask_losses(

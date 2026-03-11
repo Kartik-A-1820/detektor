@@ -4,28 +4,48 @@ A production-ready object detection and instance segmentation framework optimize
 
 This project is **fully vibe-coded**, meaning it was built through iterative collaboration between a human developer and AI coding assistants. In this repository, *vibe coding* means rapidly turning ideas into working code, refining them through repeated experimentation, and then hardening the useful workflows into a practical ML project.
 
+## Quick Links
+
+- **[Quick Start Guide](QUICKSTART.md)** - Complete workflow from training to deployment
+- **[Tools Reference](TOOLS.md)** - Comprehensive CLI documentation
+- **[Changelog](CHANGELOG.md)** - Version history and updates
+
 ## Recent Updates (March 2026)
 
+### Production Hardening
+- ✅ **Dataset Validation**: Pre-training validation tool to catch data issues
+- ✅ **Comprehensive Testing**: 77+ unit, integration, and regression tests
+- ✅ **Model Packaging**: Reproducible artifact packaging with full metadata
+- ✅ **Production API**: Versioned FastAPI with validation, logging, and metrics
+- ✅ **Gradio UI**: Lightweight web interface for local testing
+- ✅ **Docker Deployment**: Production-ready containerization
+
+### Training & Validation
 - ✅ **Stable Training Baseline**: AdamW optimizer with cosine warmup scheduler
 - ✅ **Loss Stability**: CIoU + BCE baseline with comprehensive numerical safeguards
 - ✅ **Auto num_classes Detection**: Automatically detects class count from checkpoints
-- ✅ **Folder Inference**: Batch process entire image directories
-- ✅ **Modern FastAPI**: Updated to lifespan handlers (no deprecation warnings)
 - ✅ **Detailed Loss Logging**: All loss components logged to CSV/JSONL
-- ✅ **AMP Modernization**: Updated to `torch.amp` API
-- ✅ **Ultralytics-Style Reporting**: Comprehensive plots and metrics summaries
 - ✅ **Production-Grade Validation**: AP50, AP50-95, confusion matrix, threshold sweep
 - ✅ **Task-Aware System**: Auto-detects detection vs segmentation, supports both modes
+
+### Deployment & Tooling
+- ✅ **Folder Inference**: Batch process entire image directories
+- ✅ **Modern FastAPI**: Updated to lifespan handlers (no deprecation warnings)
+- ✅ **ONNX Benchmarking**: Compare PyTorch vs ONNX Runtime performance
+- ✅ **Comprehensive Reporting**: Ultralytics-style plots and metrics summaries
 
 ## Project Overview
 
 Detektor is built for local-first ML development and deployment:
 
-- train on YOLO-style datasets
-- validate with lightweight metrics
-- run image inference locally
-- serve predictions through FastAPI
-- export stable tensor outputs to ONNX
+- **Train** on YOLO-style datasets with stable, production-grade training loop
+- **Validate** dataset quality before training with comprehensive checks
+- **Evaluate** models with production-grade metrics (AP50, AP50-95, confusion matrix)
+- **Infer** on single images or batch process entire folders
+- **Serve** predictions through production FastAPI with versioned endpoints
+- **Package** models with full reproducibility metadata
+- **Deploy** with Docker for CPU or GPU environments
+- **Export** to ONNX for optimized inference
 
 ## Task Modes
 
@@ -134,21 +154,34 @@ python run_smoke_checks.py
 
 ## Quick Start
 
+**New to Detektor?** See the **[Quick Start Guide](QUICKSTART.md)** for a complete walkthrough from dataset preparation to production deployment.
+
+**Looking for specific tools?** Check the **[Tools Reference](TOOLS.md)** for comprehensive CLI documentation.
+
+### Golden Path: 5-Minute Start
+
+```bash
+# 1. Validate your dataset
+python check_dataset.py --data-yaml F:/data/data.yaml
+
+# 2. Train your model
+python train.py --config configs/chimera_s_512.yaml --data-yaml F:/data/data.yaml
+
+# 3. Validate performance
+python validate.py --weights runs/chimera/chimera_best.pt --data-yaml F:/data/data.yaml
+
+# 4. Run inference
+python infer.py --weights runs/chimera/chimera_best.pt --source test.jpg --data-yaml F:/data/data.yaml
+
+# 5. Start API server
+python serve.py --weights runs/chimera/chimera_best.pt --device cuda
+```
+
 ### 1. Training
 
-**Basic training** (with automatic plot generation):
+**Basic training:**
 ```bash
 python train.py --config configs/chimera_s_512.yaml --data-yaml F:/data/data.yaml
-```
-
-**Training with validation** (runs validation every epoch):
-```bash
-python train.py --config configs/chimera_s_512.yaml --data-yaml F:/data/data.yaml --run-val
-```
-
-**Training with periodic validation** (every 5 epochs):
-```bash
-python train.py --config configs/chimera_s_512.yaml --data-yaml F:/data/data.yaml --run-val --val-freq 5
 ```
 
 **Resume from checkpoint:**
@@ -387,6 +420,91 @@ python infer.py --weights runs/chimera/chimera_best.pt --source F:/data/test/ima
 - Shows progress: `[1/25] processing: image.jpg`
 - Displays detections with class names
 
+## Dataset Validation
+
+Before training, validate your dataset to catch common issues:
+
+```bash
+python check_dataset.py --data-yaml F:/data/data.yaml
+```
+
+### What It Checks
+
+**File Integrity:**
+- Missing image files
+- Missing label files
+- Corrupt or unreadable images
+- Empty label files
+
+**Label Format:**
+- Malformed YOLO label rows (must have at least 5 values)
+- Invalid class IDs (out of range)
+- Invalid normalized coordinates (must be in [0, 1])
+- Zero or negative box dimensions
+
+**Dataset Quality:**
+- Class distribution across dataset
+- Image size distribution
+- Duplicate filenames (potential data issues)
+
+### Validation Output
+
+The tool generates two report files in `reports/`:
+
+**JSON Summary (`dataset_check.json`):**
+```json
+{
+  "has_errors": false,
+  "has_warnings": true,
+  "total_issues": 3,
+  "error_count": 0,
+  "warning_count": 3,
+  "stats": {
+    "total_images": 150,
+    "total_labels": 148,
+    "total_annotations": 892,
+    "empty_labels": 2,
+    "corrupt_images": 0,
+    "class_distribution": {
+      "0": 234,
+      "1": 312,
+      "2": 198,
+      "3": 148
+    },
+    "image_size_distribution": {
+      "640x480": 120,
+      "1280x720": 30
+    },
+    "duplicate_filenames": []
+  }
+}
+```
+
+**CSV Issues (`dataset_check.csv`):**
+```csv
+severity,category,message,file_path,line_number
+warning,empty_label,Label file is empty,F:/data/train/labels/img_042.txt,
+error,invalid_class_id,Class ID 5 out of range [0, 3],F:/data/train/labels/img_089.txt,3
+```
+
+### Exit Codes
+
+- **Exit 0**: Validation passed (warnings allowed)
+- **Exit 1**: Validation failed (errors found)
+
+Use in CI/CD or pre-training hooks:
+
+```bash
+python check_dataset.py --data-yaml F:/data/data.yaml || exit 1
+python train.py --config configs/chimera_s_512.yaml --data-yaml F:/data/data.yaml
+```
+
+### Validation Options
+
+- `--data-yaml`: Dataset YAML file (required)
+- `--output-dir`: Report output directory (default: `reports`)
+- `--splits`: Dataset splits to validate (default: `train val`)
+
 ### Inference Options
 
 - `--weights`: Model checkpoint path (required)
@@ -533,6 +651,57 @@ Warmup is enabled by default and runs a few dummy passes to remove first-request
 ✅ **Readiness + metrics endpoints** for orchestrators  
 ✅ **Optional mask output** via query parameter  
 ✅ **CUDA support** with automatic fallback
+
+## Deployment (Docker & Compose)
+
+Detektor ships with production-oriented Docker assets for local or on-prem deployments.
+
+### Build the Image
+
+```bash
+docker build -t detektor:latest .
+```
+
+Weights are mounted at runtime—no large artifacts baked into the image by default.
+
+### Run on CPU
+
+```bash
+docker run --rm -p 8000:8000 \
+  -v $(pwd)/artifacts/chimera_best:/artifacts:ro \
+  -e DETEKTOR_WEIGHTS=/artifacts/model.pt \
+  detektor:latest
+```
+
+### Run with NVIDIA GPU
+
+```bash
+docker run --rm --gpus all -p 8000:8000 \
+  -v $(pwd)/artifacts/chimera_best:/artifacts:ro \
+  -e DETEKTOR_WEIGHTS=/artifacts/model.pt \
+  -e DETEKTOR_DEVICE=cuda \
+  detektor:latest
+```
+
+### docker-compose
+
+```bash
+docker compose up --build
+```
+
+The compose file includes both a CPU service and an optional GPU service (requires `runtime: nvidia`). Logs stream to stdout/stderr to integrate with container runtimes. Health checks hit `/ready` every 30 seconds.
+
+### Relevant Environment Variables
+
+| Variable | Purpose |
+| --- | --- |
+| `DETEKTOR_WEIGHTS` | Path to mounted model artifact (required) |
+| `DETEKTOR_DEVICE` | `cpu`, `cuda`, or `auto` |
+| `DETEKTOR_HOST` / `DETEKTOR_PORT` | Network binding |
+| `DETEKTOR_CONF_THRESH` / `DETEKTOR_IOU_THRESH` / `DETEKTOR_MAX_DET` | Runtime thresholds |
+| `DETEKTOR_INCLUDE_MASKS` | Default mask behavior |
+
+Use `docker logs detektor-api` to inspect structured logs. For production, run behind a reverse proxy and mount packaged artifacts created via `package_model.py`.
 
 ## Dataset Format
 
@@ -869,26 +1038,86 @@ python export_onnx.py --config configs/chimera_s_512.yaml --weights runs/chimera
 
 ## Running Tests
 
-Run smoke checks:
+Detektor includes comprehensive unit, integration, and regression tests.
+
+### Fast Tests (Unit Tests Only)
+
+Run lightweight unit tests for quick validation:
 
 ```bash
-python run_smoke_checks.py
+python -m unittest discover -s tests -p "test_box_ops.py"
+python -m unittest discover -s tests -p "test_ciou.py"
+python -m unittest discover -s tests -p "test_mask_ops.py"
+python -m unittest discover -s tests -p "test_schemas.py"
+python -m unittest discover -s tests -p "test_config.py"
 ```
 
-Run the unittest suite:
+Or run all unit tests:
+
+```bash
+python -m unittest tests.test_box_ops tests.test_ciou tests.test_mask_ops tests.test_schemas tests.test_config
+```
+
+### Full Test Suite
+
+Run all tests including integration and regression tests:
 
 ```bash
 python -m unittest discover -s tests -p "test_*.py"
 ```
 
+### Test Categories
+
+**Unit Tests:**
+- `test_box_ops.py` - Box decoding and flattening operations
+- `test_ciou.py` - CIoU loss and IoU helpers
+- `test_mask_ops.py` - Mask composition, cropping, and resizing
+- `test_schemas.py` - API schema serialization and validation
+- `test_config.py` - Configuration parsing and dataset YAML handling
+
+**Integration Tests:**
+- `test_integration.py` - End-to-end workflows (inference, reporting, validation)
+- `test_api.py` - FastAPI endpoint testing
+
+**Regression Tests:**
+- `test_regression.py` - Schema stability and no-NaN guarantees
+
+**Smoke Tests:**
+- `test_model.py` - Model architecture smoke tests
+- `test_predict.py` - Prediction format validation
+- `test_export.py` - ONNX export smoke tests
+
+### Running Specific Test Classes
+
+```bash
+python -m unittest tests.test_box_ops.TestBoxOps
+python -m unittest tests.test_ciou.TestCIoU.test_ciou_loss_identical_boxes
+```
+
+### Test Coverage Notes
+
+- **Unit tests** are fast (<1s each) and cover core helper functions
+- **Integration tests** may take longer and test full workflows
+- **Regression tests** ensure API stability and no-NaN guarantees
+- All tests are designed to run locally without GPU requirements
+
 ## Documentation
 
-- **`README.md`** (this file): Quick start and usage guide
-- **`OPTIMIZER_LOSS_BASELINE.md`**: Detailed optimizer and loss stability documentation
-- **`REPORTING.md`**: Reporting module documentation and API reference
-- **`VALIDATION_OUTPUT_SCHEMA.md`**: Validation metrics output format specification
-- **`PROJECT_STATUS.md`**: Project roadmap and status
-- **`CONTRIBUTING.md`**: Contribution guidelines
+### Getting Started
+- **[QUICKSTART.md](QUICKSTART.md)**: Complete workflow from dataset to deployment
+- **[TOOLS.md](TOOLS.md)**: Comprehensive CLI tool reference
+- **[CHANGELOG.md](CHANGELOG.md)**: Version history and updates
+
+### Technical Documentation
+- **[OPTIMIZER_LOSS_BASELINE.md](OPTIMIZER_LOSS_BASELINE.md)**: Optimizer and loss stability guide
+- **[REPORTING.md](REPORTING.md)**: Reporting module documentation
+- **[VALIDATION_OUTPUT_SCHEMA.md](VALIDATION_OUTPUT_SCHEMA.md)**: Validation metrics format
+- **[PROJECT_STATUS.md](PROJECT_STATUS.md)**: Project roadmap and status
+- **[CONTRIBUTING.md](CONTRIBUTING.md)**: Contribution guidelines
+
+### Configuration Examples
+- **`configs/chimera_s_512.yaml`**: Default training configuration
+- **`examples/sample_val_metrics.json`**: Example validation output
 
 ## Troubleshooting
 
