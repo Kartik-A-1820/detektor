@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import io
 import sys
 from pathlib import Path
 from typing import List
@@ -12,6 +13,7 @@ import yaml
 
 from utils.dataset_validation import (
     DatasetStats,
+    ValidationIssue,
     ValidationResult,
     collect_class_distribution,
     find_duplicate_filenames,
@@ -71,24 +73,24 @@ def validate_dataset_split(
 
     if not images_dir.exists():
         result.issues.append(
-            {
-                "severity": "error",
-                "category": "missing_directory",
-                "message": f"{split_name} images directory not found: {images_dir}",
-                "file_path": str(images_dir),
-            }
+            ValidationIssue(
+                severity="error",
+                category="missing_directory",
+                message=f"{split_name} images directory not found: {images_dir}",
+                file_path=str(images_dir),
+            )
         )
         result.has_errors = True
         return result
 
     if not labels_dir.exists():
         result.issues.append(
-            {
-                "severity": "error",
-                "category": "missing_directory",
-                "message": f"{split_name} labels directory not found: {labels_dir}",
-                "file_path": str(labels_dir),
-            }
+            ValidationIssue(
+                severity="error",
+                category="missing_directory",
+                message=f"{split_name} labels directory not found: {labels_dir}",
+                file_path=str(labels_dir),
+            )
         )
         result.has_errors = True
         return result
@@ -102,12 +104,12 @@ def validate_dataset_split(
 
     if not pairs:
         result.issues.append(
-            {
-                "severity": "warning",
-                "category": "empty_split",
-                "message": f"No images found in {split_name} split",
-                "file_path": str(images_dir),
-            }
+            ValidationIssue(
+                severity="warning",
+                category="empty_split",
+                message=f"No images found in {split_name} split",
+                file_path=str(images_dir),
+            )
         )
         result.has_warnings = True
         return result
@@ -118,12 +120,12 @@ def validate_dataset_split(
     if duplicates:
         result.stats.duplicate_filenames.update(duplicates)
         result.issues.append(
-            {
-                "severity": "warning",
-                "category": "duplicate_filenames",
-                "message": f"Found {len(duplicates)} duplicate filenames: {', '.join(sorted(duplicates)[:5])}...",
-                "file_path": None,
-            }
+            ValidationIssue(
+                severity="warning",
+                category="duplicate_filenames",
+                message=f"Found {len(duplicates)} duplicate filenames: {', '.join(sorted(duplicates)[:5])}...",
+                file_path=None,
+            )
         )
         result.has_warnings = True
 
@@ -256,11 +258,25 @@ def print_summary(result: ValidationResult) -> None:
     print(f"  Warnings: {sum(1 for issue in result.issues if issue.severity == 'warning')}")
 
     if result.has_errors:
-        print("\n❌ VALIDATION FAILED - Errors found")
+        status = "[FAIL] VALIDATION FAILED - Errors found"
     elif result.has_warnings:
-        print("\n⚠️  VALIDATION PASSED - Warnings found")
+        status = "[WARN] VALIDATION PASSED - Warnings found"
     else:
-        print("\n✅ VALIDATION PASSED - No issues found")
+        status = "[OK] VALIDATION PASSED - No issues found"
+
+    print(f"\n{status}")
+
+
+def configure_stdout() -> None:
+    """Prefer UTF-8 output, but fall back safely when stdout cannot be reconfigured."""
+    stdout = sys.stdout
+    if not hasattr(stdout, "reconfigure"):
+        return
+
+    try:
+        stdout.reconfigure(encoding="utf-8", errors="replace")
+    except (AttributeError, io.UnsupportedOperation, ValueError):
+        return
 
 
 def parse_args() -> argparse.Namespace:
@@ -290,6 +306,7 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> int:
     """Main entry point."""
+    configure_stdout()
     args = parse_args()
 
     data_yaml_path = Path(args.data_yaml)

@@ -5,10 +5,12 @@ from __future__ import annotations
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 import cv2
 import numpy as np
 
+from check_dataset import print_summary
 from utils.dataset_validation import (
     DatasetStats,
     ValidationIssue,
@@ -27,7 +29,9 @@ class TestDatasetValidation(unittest.TestCase):
 
     def setUp(self) -> None:
         """Set up test fixtures."""
-        self.temp_dir = tempfile.mkdtemp()
+        temp_root = Path(__file__).resolve().parents[1] / "reports" / "test_tmp"
+        temp_root.mkdir(parents=True, exist_ok=True)
+        self.temp_dir = tempfile.mkdtemp(dir=str(temp_root))
         self.temp_path = Path(self.temp_dir)
 
     def create_test_image(self, path: Path, width: int = 100, height: int = 100) -> None:
@@ -303,13 +307,28 @@ class TestDatasetValidation(unittest.TestCase):
         self.assertFalse(result.has_warnings)
         self.assertIsInstance(result.stats, DatasetStats)
 
+    def test_print_summary_uses_ascii_safe_status_text(self) -> None:
+        """Test summary output uses console-safe ASCII status markers."""
+        result = ValidationResult()
+        result.has_warnings = True
+        result.stats.total_images = 1
+        result.stats.total_labels = 1
+
+        with mock.patch("sys.stdout") as fake_stdout:
+            print_summary(result)
+
+        output = "".join(call.args[0] for call in fake_stdout.write.call_args_list)
+        self.assertIn("[WARN] VALIDATION PASSED - Warnings found", output)
+
 
 class TestDatasetValidationIntegration(unittest.TestCase):
     """Integration tests for dataset validation."""
 
     def setUp(self) -> None:
         """Set up test fixtures."""
-        self.temp_dir = tempfile.mkdtemp()
+        temp_root = Path(__file__).resolve().parents[1] / "reports" / "test_tmp"
+        temp_root.mkdir(parents=True, exist_ok=True)
+        self.temp_dir = tempfile.mkdtemp(dir=str(temp_root))
         self.temp_path = Path(self.temp_dir)
 
     def create_fake_dataset(self) -> Path:
