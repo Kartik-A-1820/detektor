@@ -1,428 +1,103 @@
 # VibeCode Handoff
 
-## User Instructions That Must Continue
+## Operating Constraints
 
-- Always activate the project virtual environment before running any Python script.
-- On this machine, PowerShell activation via `.venv\Scripts\Activate.ps1` is blocked by execution policy, so use one of these instead:
-  - `cmd /c ".venv\Scripts\activate.bat && python ..."`
-  - `.\.venv\Scripts\python.exe ...`
-- Push only to the `beta` branch.
-- When a quickstart step is verified, commit with wording that mentions the verified step.
-- The dataset is already available at `F:/data`.
-- Step 1 of [QUICKSTART.md](F:\detektor\QUICKSTART.md) was already verified by the user.
+- Activate Python with `cmd /c ".venv\Scripts\activate.bat && python ..."` or `.\.venv\Scripts\python.exe ...`.
+- `Activate.ps1` is blocked by local execution policy.
+- Push only to `beta`.
+- `F:/data/data.yaml` is the active dataset.
+- Do not commit generated `artifacts/`, `reports/`, or ad hoc `runs/` outputs unless explicitly asked.
 
-## Task Scope
+## Verified Baseline Before This Update
 
-The task was to continue from step 2 of [QUICKSTART.md](F:\detektor\QUICKSTART.md), run the commands, verify features are working correctly, fix errors encountered from the terminal, and push verified work to `beta`.
+- Quickstart steps `2-8` and `10` were verified and pushed.
+- Docker step `9` is still not runnable here because `docker` is not installed.
+- Training is now numerically stable on this machine in `fp32` on CUDA.
+- Auto-training already existed:
+  - `python train.py --data-yaml F:/data/data.yaml`
+  - hardware-aware runtime selection
+  - architecture auto-selection
+  - stronger training augmentations
+- Last major verified 5-epoch run before this update:
+  - GPU: `NVIDIA GeForce GTX 1650 Ti` (`~4 GB`)
+  - resolved profile: `Comet`
+  - precision: `0.4894`
+  - recall: `0.0784`
+  - mAP50: `0.0438`
+  - mean IoU: `0.7144`
+- Earlier commits already pushed to `origin/beta`:
+  - `7daca64` `Verify step 2 dataset validation`
+  - `9178358` `Verify quickstart steps 3-8 and 10`
 
-## What Was Verified
-
-### Step 2: Dataset Validation
-
-Command used:
-
-```powershell
-cmd /c ".venv\Scripts\activate.bat && python check_dataset.py --data-yaml F:/data/data.yaml"
-```
-
-Status:
-- Verified.
-- Result: `0` errors, `2` warnings.
-- Dataset stats observed:
-  - `694` images
-  - `694` labels
-  - `16614` annotations
-- Warning source: duplicate filenames across splits, not corrupt labels/images.
-
-Fixes made:
-- [check_dataset.py](F:\detektor\check_dataset.py)
-  - Replaced fragile Unicode status glyphs with ASCII-safe status text.
-  - Added stdout reconfiguration for safer console output.
-- [tests/test_dataset_validation.py](F:\detektor\tests\test_dataset_validation.py)
-  - Added a focused regression test for the summary output path.
-
-Commit/push:
-- `7daca64` `Verify step 2 dataset validation`
-- Pushed to `origin/beta`
-
-### Step 3: Train Your Model
-
-Status:
-- Training path verified.
-- Did not overwrite the existing `runs/chimera` artifacts.
-- Used isolated config [configs/chimera_s_512_step3_verify.yaml](F:\detektor\configs\chimera_s_512_step3_verify.yaml) with output directory `runs/chimera_step3_verify`.
-
-Command used:
-
-```powershell
-cmd /c ".venv\Scripts\activate.bat && python train.py --config configs/chimera_s_512_step3_verify.yaml --data-yaml F:/data/data.yaml"
-```
-
-Important finding:
-- Training completes, but repeatedly logs non-finite gradient warnings.
-- This means the training pipeline runs, but model quality/stability is not healthy.
-
-### Step 4: Validate Your Model
-
-Command used:
-
-```powershell
-cmd /c ".venv\Scripts\activate.bat && python validate.py --weights runs/chimera/chimera_best.pt --data-yaml F:/data/data.yaml --save-json runs/chimera/val_metrics.json"
-```
-
-Status:
-- Verified.
-- Validation command runs successfully.
-
-Important finding:
-- Current checkpoint `runs/chimera/chimera_best.pt` produced zero predictions.
-- Observed metrics were effectively all zero.
-
-### Step 5: Test Inference
-
-Commands used:
-
-```powershell
-cmd /c ".venv\Scripts\activate.bat && python infer.py --weights runs/chimera/chimera_best.pt --source F:/data/test/images/08fd33_3_6_png.rf.261781c58b95436fb40e6afc0495bc57.jpg --data-yaml F:/data/data.yaml --save-path runs/inference/test_image_pred.jpg"
-```
-
-```powershell
-cmd /c ".venv\Scripts\activate.bat && python infer.py --weights runs/chimera/chimera_best.pt --source F:/data/test/images --data-yaml F:/data/data.yaml --save-path runs/inference_batch"
-```
-
-Status:
-- Verified.
-- Single-image and batch inference paths both run and save outputs.
-
-Important finding:
-- Inference produced `0` detections on all tested images with the current checkpoint.
-- This is a model-quality issue, not an inference CLI failure.
-
-### Step 6: Generate Training Report
-
-Problem found:
-- Reporting and training-time plotting were failing because Matplotlib tried to use a Tk/Tcl backend that is not available in this environment.
-
-Fix made:
-- [utils/reporting.py](F:\detektor\utils\reporting.py)
-  - Forced headless backend with `matplotlib.use("Agg")`.
-
-Command used:
-
-```powershell
-cmd /c ".venv\Scripts\activate.bat && python report.py --run-dir runs/chimera"
-```
-
-Status:
-- Verified.
-- Report generation now works.
-
-### Step 7: Package Your Model
-
-Command used:
-
-```powershell
-cmd /c ".venv\Scripts\activate.bat && python package_model.py --weights runs/chimera/chimera_best.pt --config configs/chimera_s_512.yaml --data-yaml F:/data/data.yaml --output-dir artifacts --name chimera_v1"
-```
-
-Status:
-- Verified.
-- Artifact package created under `artifacts/chimera_v1`.
-
-### Step 8: Deploy with FastAPI
-
-Status:
-- Verified.
-- Real service startup works.
-- Verified `/health`, `/version`, and `/v1/predict`.
-
-Practical note:
-- Detached background server processes are unreliable in this sandbox, so verification was done by starting the server and probing it in the same shell command.
-
-Important finding:
-- API works, but prediction output from the current checkpoint is still `0` detections.
-
-### Step 9: Deploy with Docker
-
-Status:
-- Not executable on this machine.
-
-Reason:
-- `docker` is not installed / not available in PATH.
-
-What was still checked:
-- [docker-compose.yml](F:\detektor\docker-compose.yml) exists and was reviewed.
-
-### Step 10: Launch UI
-
-Problems found:
-- [ui/app.py](F:\detektor\ui\app.py) originally required `requests`, which was missing in the venv at runtime.
-- After dependencies were installed, Gradio compatibility failed because `gr.Files(type="file")` is invalid for the installed Gradio version.
-
-Fixes made:
-- [ui/app.py](F:\detektor\ui\app.py)
-  - Removed hard dependency on `requests` by switching HTTP calls to standard-library `urllib`.
-  - Updated batch upload component from `type="file"` to `type="filepath"`.
-  - Updated file loading logic to handle filepath strings.
-
-Verification:
-- UI successfully started and responded with HTTP `200` on `http://127.0.0.1:7860/`.
-
-## Environment Issues Observed
-
-- `Activate.ps1` cannot be used because PowerShell script execution is disabled locally.
-- The venv initially lacked some runtime/test dependencies at execution time:
-  - `httpx`
-  - `requests`
-  - `gradio`
-- `pip` was not available in the venv.
-- `uv` is available and was used to install missing packages into the venv.
-- Python temp-directory writes are heavily restricted in this environment, which caused:
-  - failures in some tests that write temp files
-  - `ensurepip` failures
-- Detached background processes are unreliable in this sandbox.
-
-## Dependency Install Performed
-
-Installed with:
-
-```powershell
-$env:UV_CACHE_DIR='F:\detektor\reports\uv-cache'
-uv pip install --python .\.venv\Scripts\python.exe httpx requests gradio
-```
-
-## Commits Already Pushed To `beta`
-
-- `7daca64` `Verify step 2 dataset validation`
-- `9178358` `Verify quickstart steps 3-8 and 10`
-
-These are already pushed to `origin/beta`.
-
-## Current Repo State Notes
-
-- Generated artifacts exist locally but were intentionally not committed:
-  - `artifacts/`
-  - `reports/`
-  - inference output folders under `runs/`
-- There are also inaccessible temp-like directories under `.tmp_testdata/` that produce warnings during `git status`.
-- Do not blindly add generated artifacts unless the user explicitly asks for them to be versioned.
-
-## Most Important Remaining Technical Issue
-
-The quickstart plumbing is mostly verified, but the model itself is not producing useful detections.
-
-Primary next task for a follow-up agent:
-- investigate training instability and non-finite gradients in step 3
-- determine why `runs/chimera/chimera_best.pt` yields zero detections in validation/inference
-
-Suggested starting points:
-- inspect loss computation and gradient sanitization behavior in training
-- compare dataset/task assumptions with the current detection-only dataset
-- review training summaries under `runs/chimera_step3_verify` and `runs/chimera`
-- verify whether the existing checkpoint is actually a usable best model or a degraded artifact
-
-## Follow-up Status Update: CUDA 3-Epoch Training Check
+## Latest Update: Smart Training Orchestrator
 
 Date:
 - March 13, 2026
 
 User request:
-- run actual training on CUDA for 3 epochs
-- check status of losses and metrics
-- aim for YOLO/Ultralytics-style stable training behavior
+- make training self-heal for common runtime failures
+- retry with safer settings instead of aborting immediately
+- test by running training once
+- push to `beta`
+- compact this file
 
-Files changed in this follow-up:
+Files changed:
 - [train.py](F:\detektor\train.py)
-  - fixed in-training validation call to match the actual `validate()` signature
-  - added fallback logic so training can retry a step without AMP if AMP produces non-finite loss components or gradients
-  - fixed `last_epoch_loss` tracking
-- [models/chimera.py](F:\detektor\models\chimera.py)
-  - replaced `sum() * 0.0` zero-loss placeholders with scalar zero tensors to avoid autocast-related `NaN` values in detection-only mode
-- [configs/chimera_s_512_cuda_3epoch_verify.yaml](F:\detektor\configs\chimera_s_512_cuda_3epoch_verify.yaml)
-  - added isolated 3-epoch CUDA verification config
-  - final verified setting uses `amp: false`
-  - final output directory is `runs/chimera_cuda_3epoch_verify_v3_fp32`
-
-What was observed:
-
-### First CUDA run with AMP enabled
-
-Command used:
-
-```powershell
-cmd /c ".venv\Scripts\activate.bat && python train.py --config configs/chimera_s_512_cuda_3epoch_verify.yaml --data-yaml F:/data/data.yaml --ema --grad-clip 10 --run-val --val-freq 1"
-```
-
-Findings:
-- training no longer skipped every step after the code fix
-- however, AMP still caused a bad first step
-- specifically, AMP polluted BatchNorm running statistics with `NaN`
-- those corrupted BatchNorm stats were saved into the checkpoint
-- result: the checkpoint could still be numerically broken at inference/validation time even though training loop fallback continued in fp32
-
-Conclusion:
-- AMP is currently unsafe for this model/training path
-
-### Stable CUDA verification run in fp32
-
-Final verified config:
-- `device: "cuda"`
-- `epochs: 3`
-- `amp: false`
-- `out_dir: runs/chimera_cuda_3epoch_verify_v3_fp32`
-
-Status:
-- verified
-- checkpoint state is numerically clean (`bad_params=0`)
-- training loss is finite and updates across steps/epochs
-- validation now runs during training and records metrics correctly
-
-Epoch summaries observed:
-- Epoch 1 loss: `3.2421`
-- Epoch 2 loss: `4.8859`
-- Epoch 3 loss: `3.8712`
-
-Validation metrics observed:
-- Epoch 1:
-  - precision: `0.0000`
-  - recall: `0.0000`
-  - mAP50: `0.0000`
-- Epoch 2:
-  - precision: `0.0077`
-  - recall: `0.0094`
-  - mAP50: `0.0000`
-  - mean IoU: `0.6553`
-- Epoch 3:
-  - precision: `0.1658`
-  - recall: `0.0809`
-  - mAP50: `0.0136`
-  - mean IoU: `0.6782`
-
-Interpretation:
-- the training path is now numerically stable on CUDA in fp32
-- the model is no longer stuck at absolute zero detections after a short run
-- however, model quality is still far below a healthy YOLO/Ultralytics-style baseline
-- loss behavior is still not convincingly stable, and accuracy remains weak after 3 epochs
-
-Most important updated conclusion:
-- the previous total failure mode was partly a numerical/training-loop issue and is now mitigated
-- the remaining problem is now model-learning quality rather than immediate loss collapse
-- likely next investigation areas are:
-  - detection head / neck stability under AMP
-  - target assignment quality
-  - objectness and classification calibration
-  - loss weighting / warmup behavior
-  - whether BatchNorm is appropriate for the current effective batch behavior
-
-## Follow-up Status Update: Auto-Tuned Training And Augmentation Upgrade
-
-Date:
-- March 13, 2026
-
-User request:
-- remove the requirement for a user-authored training config
-- make training auto-adjust to the dataset and available GPU VRAM
-- target practical support for machines with roughly `1 GB` to `4 GB` VRAM
-- add Ultralytics-style training augmentations and verify the new workflow by running training
-
-Files changed in this follow-up:
-- [train.py](F:\detektor\train.py)
-  - now supports training from `--data-yaml` alone without requiring `--config`
-  - resolves a hardware-aware runtime config before training starts
-  - writes the final resolved config to the run directory as `resolved_train_config.yaml`
-  - falls back to `num_workers=0` when multiprocessing workers are blocked in this environment
-  - uses ASCII-safe final status output
+  - split training into single-attempt execution plus retry orchestrator
+  - added recoverable failure classification for:
+    - AMP instability
+    - non-finite loss
+    - non-finite gradients
+    - CUDA / runtime OOM
+  - retries now restart cleanly in a new run directory instead of continuing from a contaminated attempt
 - [utils/auto_train_config.py](F:\detektor\utils\auto_train_config.py)
-  - new module for default config generation and GPU/VRAM-aware training auto-tuning
-  - picks `img_size`, `batch_size`, `grad_accum`, `num_workers`, `lr`, output directory, and augmentation strengths
-- [datasets/factory.py](F:\detektor\datasets\factory.py)
-  - enables augmentations only for the training split
-- [datasets/yolo_seg.py](F:\detektor\datasets\yolo_seg.py)
-  - added training-time HSV augmentation
-  - added horizontal/vertical flip augmentation
-  - added translation and scale affine augmentation
-  - keeps validation/inference deterministic by applying augmentations only in training mode
-- [utils/data_config.py](F:\detektor\utils\data_config.py)
-  - now normalizes dataset `names` when provided in dict form
+  - added `smart_training` defaults
+  - added retry planner and attempt-specific output directory generation
+  - added resolved-runtime summarizer for retry attempts
 - [tests/test_auto_train_config.py](F:\detektor\tests\test_auto_train_config.py)
-  - added regression coverage for hardware-aware auto-config resolution
-  - added a deterministic box-flip augmentation test
+  - added retry-planner coverage for AMP instability and OOM downgrades
+- [tests/test_smart_training.py](F:\detektor\tests\test_smart_training.py)
+  - added orchestrator test proving a failed attempt is retried with downgraded config
 
-What the new CLI now supports:
+Smart retry behavior now implemented:
+- `amp_instability`
+  - disable AMP and restart from scratch in a new attempt directory
+- `oom`
+  - force `num_workers=0`
+  - halve `batch_size`
+  - increase `grad_accum` to preserve effective batch as much as possible
+  - if already at minimum batch, reduce `img_size`
+- `non_finite_loss` / `non_finite_grad`
+  - disable AMP when applicable
+  - reduce LR
+  - soften aggressive augmentations
+  - for gradient failures, also reduce batch size
+- retries stop when no logical downgrade remains or `max_attempts` is reached
 
-```powershell
-cmd /c ".venv\Scripts\activate.bat && python train.py --data-yaml F:/data/data.yaml"
+Default smart-training policy now lives in resolved config:
+
+```yaml
+smart_training:
+  enabled: true
+  max_attempts: 4
+  min_batch_size: 1
+  min_img_size: 256
+  min_lr: 0.00025
+  non_finite_patience: 2
 ```
 
-The user may still pass `--config`, but it is now optional.
+## Verification For This Update
 
-### Auto-selected runtime on this machine
-
-Hardware observed:
-- GPU: `NVIDIA GeForce GTX 1650 Ti`
-- VRAM: about `4.0 GB`
-
-Resolved settings used automatically:
-- `device: cuda`
-- `img_size: 512`
-- `batch_size: 4`
-- `grad_accum: 2`
-- effective batch size: `8`
-- `lr: 0.002`
-- `amp: false`
-- `num_workers: 0` after safe fallback because worker processes are blocked in this environment
-- output directory: `runs/data_cuda_4p0gb_512`
-
-Resolved augmentation policy used automatically:
-- HSV color jitter
-- horizontal flip
-- light vertical flip
-- translation
-- scale jitter
-
-### Verification Performed
-
-Unit verification:
+Unit tests:
 
 ```powershell
-cmd /c ".venv\Scripts\activate.bat && python -m unittest tests.test_auto_train_config"
+cmd /c ".venv\Scripts\activate.bat && python -m unittest tests.test_auto_train_config tests.test_smart_training"
 ```
 
 Status:
 - verified
 
-End-to-end training verification with only dataset YAML:
-
-```powershell
-cmd /c ".venv\Scripts\activate.bat && python train.py --data-yaml F:/data/data.yaml --run-val --val-freq 1"
-```
-
-Status:
-- verified
-- training completed successfully
-- in-training validation completed successfully
-- resolved config snapshot written to `runs/data_cuda_4p0gb_512/resolved_train_config.yaml`
-
-Observed epoch losses:
-- Epoch 1 loss: `3.2547`
-- Epoch 2 loss: `5.6062`
-- Epoch 3 loss: `8.1348`
-- Epoch 4 loss: `5.5395`
-- Epoch 5 loss: `3.5449`
-
-Observed validation metrics:
-- Epoch 4:
-  - precision: `0.0350`
-  - recall: `0.1073`
-  - mAP50: `0.0027`
-  - mean IoU: `0.6762`
-- Epoch 5:
-  - precision: `0.5561`
-  - recall: `0.3543`
-  - mAP50: `0.2112`
-  - mean IoU: `0.7226`
-
-Additional smoke verification with a 1-epoch override config:
+Real training run:
 
 ```powershell
 cmd /c ".venv\Scripts\activate.bat && python train.py --config reports/auto_verify_smoke.yaml --data-yaml F:/data/data.yaml --run-val --val-freq 1"
@@ -430,146 +105,23 @@ cmd /c ".venv\Scripts\activate.bat && python train.py --config reports/auto_veri
 
 Status:
 - verified
-- confirms the cleaned-up final reporting path and worker fallback path still complete successfully
+- completed on attempt `1/4`
+- no smart retry was needed on this smoke run
 
-Interpretation:
-- training can now be launched from dataset YAML alone
-- runtime settings are now chosen automatically based on detected hardware rather than requiring a hand-edited config
-- the augmentation pipeline is active for training and disabled for validation/inference as intended
-- the model is no longer behaving like a total zero-detection failure in the verified 5-epoch auto-tuned run
-- accuracy is improved versus the earlier near-zero state, but still not yet at a strong final-quality baseline
+Observed results:
+- epoch 1 loss: `3.324238`
+- validation precision: `0.0000`
+- validation recall: `0.0000`
+- validation mAP50: `0.0000`
 
-Most important updated conclusion:
-- the project is now materially easier to use on low-VRAM GPUs because training no longer depends on the user manually tuning core runtime settings
-- the next accuracy-oriented follow-up should focus on stronger augmentation strategies such as mosaic/mixup/copy-paste and on improving target assignment / head calibration
+Artifacts written:
+- `runs/auto_verify_smoke/`
 
-## Follow-up Status Update: Advanced Augmentation And Auto-Architecture Selection
+## Current State
 
-Date:
-- March 13, 2026
-
-User request:
-- add stronger Ultralytics-style training augmentations including mosaic, cutmix, and random cutout
-- auto-select not only runtime settings but also the model architecture from CPU through multiple VRAM tiers
-- run a complete 5-epoch training on the current device after clearing existing `runs/`
-- push verified changes to `beta`
-
-Files changed in this follow-up:
-- [datasets/yolo_seg.py](F:\detektor\datasets\yolo_seg.py)
-  - added mosaic composition for 4-image training batches
-  - added cutmix region replacement with instance-set remapping
-  - added random cutout augmentation
-  - kept validation/inference deterministic and augmentation-free
-- [utils/auto_train_config.py](F:\detektor\utils\auto_train_config.py)
-  - now resolves architecture profiles as well as batch/img-size settings
-  - adds CPU fallback when detected GPU VRAM is below roughly `512 MB`
-  - auto-selects advanced augmentation strengths from dataset size
-- [models/factory.py](F:\detektor\models\factory.py)
-  - new central model factory for named architecture profiles and checkpoint-aware model reconstruction
-- [train.py](F:\detektor\train.py)
-  - now builds the resolved architecture from config instead of assuming one fixed model shape
-  - prints resolved model profile/name during training
-- [validate.py](F:\detektor\validate.py)
-  - now loads the resolved architecture from config
-- [validate_v2.py](F:\detektor\validate_v2.py)
-  - now loads the resolved architecture from config
-- [infer.py](F:\detektor\infer.py)
-  - now reconstructs the correct architecture from checkpoint metadata
-- [api/utils.py](F:\detektor\api\utils.py)
-  - now reconstructs the correct architecture from checkpoint metadata for serving
-- [tests/test_auto_train_config.py](F:\detektor\tests\test_auto_train_config.py)
-  - added coverage for CPU fallback and named profile selection
-  - added deterministic checks for mosaic and cutmix behavior
-
-Named architecture ladder now used by the resolver:
-- `Firefly`: CPU / below `512 MB` VRAM fallback
-- `Comet`: about `512 MB`
-- `Nova`: about `1 GB`
-- `Pulsar`: about `2 GB`
-- `Quasar`: about `4 GB`
-- `Supernova`: beyond that
-
-Verification performed before full training:
-
-```powershell
-cmd /c ".venv\Scripts\activate.bat && python -m unittest tests.test_auto_train_config tests.test_model tests.test_predict"
-```
-
-Status:
-- verified
-
-### Full 5-epoch training verification on this machine
-
-Preparation performed:
-- removed existing `runs/` contents before training, per user request
-
-Command used:
-
-```powershell
-cmd /c ".venv\Scripts\activate.bat && python train.py --data-yaml F:/data/data.yaml --run-val --val-freq 1"
-```
-
-Resolved runtime on this machine:
-- GPU: `NVIDIA GeForce GTX 1650 Ti`
-- VRAM: about `4.0 GB`
-- resolved architecture: `Comet`
-- device: `cuda`
-- `img_size: 512`
-- `batch_size: 4`
-- `grad_accum: 2`
-- effective batch size: `8`
-- `amp: false`
-- `num_workers: 0` after safe fallback in this environment
-
-Resolved advanced augmentation policy used:
-- mosaic: `0.85`
-- cutmix: `0.20`
-- random cutout: `0.40`
-- HSV jitter
-- horizontal flip
-- light vertical flip
-- translation
-- scale jitter
-
-Numerical stability result:
-- verified stable
-- no non-finite loss warnings were emitted
-- no non-finite gradient warnings were emitted
-- training completed all `5` epochs successfully
-
-Observed epoch losses:
-- Epoch 1 loss: `3.3241`
-- Epoch 2 loss: `5.7577`
-- Epoch 3 loss: `7.5913`
-- Epoch 4 loss: `5.0533`
-- Epoch 5 loss: `3.9618`
-
-Observed validation metrics:
-- Epoch 1:
-  - precision: `0.0000`
-  - recall: `0.0000`
-  - mAP50: `0.0000`
-- Epoch 2:
-  - precision: `0.0000`
-  - recall: `0.0000`
-  - mAP50: `0.0000`
-- Epoch 3:
-  - precision: `0.0000`
-  - recall: `0.0000`
-  - mAP50: `0.0000`
-- Epoch 4:
-  - precision: `0.1214`
-  - recall: `0.2044`
-  - mAP50: `0.0316`
-  - mean IoU: `0.6884`
-- Epoch 5:
-  - precision: `0.4894`
-  - recall: `0.0784`
-  - mAP50: `0.0438`
-  - mean IoU: `0.7144`
-
-Interpretation:
-- the training path remains numerically stable with the new augmentation pipeline and architecture resolver
-- the model is no longer stuck in an immediate numerical failure mode
-- validation shows non-zero learning progress by epochs 4 and 5
-- quality is still early-stage and not yet at a strong final baseline, but the requested infrastructure changes are working end-to-end
+- Training orchestration is now materially more fault-tolerant for common runtime failures.
+- The major remaining problem is still model quality, not training startup or crash handling.
+- If accuracy work continues next, focus on:
+  - target assignment quality
+  - head calibration / loss weighting
+  - longer verified runs after the smart orchestrator changes

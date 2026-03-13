@@ -75,6 +75,15 @@ DEFAULT_TRAINING_CONFIG: Dict[str, Any] = {
     "logging": {
         "out_dir": "runs/chimera_auto",
     },
+    "smart_training": {
+        "enabled": True,
+        "max_attempts": 4,
+        "min_batch_size": 1,
+        "min_img_size": 256,
+        "min_lr": 0.00025,
+        "non_finite_patience": 2,
+        "base_out_dir": "",
+    },
 }
 
 
@@ -103,6 +112,13 @@ def _build_auto_out_dir(data_yaml: str | None, img_size: int, total_vram_gb: flo
     vram_label = f"{max(total_vram_gb, 0.0):.1f}".replace(".", "p")
     device_label = "cpu" if device_name == "cpu" else "cuda"
     return str(Path("runs") / f"{dataset_name}_{device_label}_{vram_label}gb_{img_size}")
+
+
+def build_attempt_out_dir(base_out_dir: str | Path, attempt_index: int) -> str:
+    base_path = Path(base_out_dir)
+    if attempt_index <= 1:
+        return str(base_path)
+    return str(base_path.parent / f"{base_path.name}_retry{attempt_index:02d}")
 
 
 def _dataset_size_band(dataset_size: int) -> str:
@@ -349,6 +365,10 @@ def resolve_training_config(config_path: str | None, data_yaml: str | None) -> T
 
     cfg["train"]["img_size"] = _next_multiple_of_32(int(cfg["train"]["img_size"]))
     cfg["train"]["num_workers"] = max(int(cfg["train"].get("num_workers", 0)), 0)
+    cfg.setdefault("smart_training", {})
+    cfg["smart_training"] = _deep_merge(DEFAULT_TRAINING_CONFIG["smart_training"], cfg["smart_training"])
+    if not cfg["smart_training"].get("base_out_dir"):
+        cfg["smart_training"]["base_out_dir"] = cfg.get("logging", {}).get("out_dir", "")
     model_profile_key = str(cfg.get("model", {}).get("profile", "quasar")).lower()
     if model_profile_key in ARCHITECTURE_PROFILES:
         model_profile = ARCHITECTURE_PROFILES[model_profile_key]
@@ -388,8 +408,151 @@ def resolve_training_config(config_path: str | None, data_yaml: str | None) -> T
         "model_display_name": str(cfg.get("model", {}).get("display_name", "")),
         "model": copy.deepcopy(cfg.get("model", {})),
         "augment": copy.deepcopy(cfg.get("augment", {})),
+        "smart_training": copy.deepcopy(cfg.get("smart_training", {})),
     }
     return cfg, resolution
+
+
+def summarize_resolved_training(cfg: Dict[str, Any], base_resolution: Dict[str, Any]) -> Dict[str, Any]:
+    summary = copy.deepcopy(base_resolution)
+    summary.update(
+        {
+            "device": str(cfg.get("device", summary.get("device", "cpu"))),
+            "batch_size": int(cfg["train"]["batch_size"]),
+            "grad_accum": int(cfg["train"].get("grad_accum", 1)),
+            "effective_batch_size": int(cfg["train"]["batch_size"]) * int(cfg["train"].get("grad_accum", 1)),
+            "img_size": int(cfg["train"]["img_size"]),
+            "amp": bool(cfg["train"].get("amp", False)),
+            "num_workers": int(cfg["train"].get("num_workers", 0)),
+            "lr": float(cfg["train"]["lr"]),
+            "out_dir": cfg.get("logging", {}).get("out_dir", ""),
+            "model_profile": str(cfg.get("model", {}).get("profile", "")),
+            "model_display_name": str(cfg.get("model", {}).get("display_name", "")),
+            "model": copy.deepcopy(cfg.get("model", {})),
+            "augment": copy.deepcopy(cfg.get("augment", {})),
+            "smart_training": copy.deepcopy(cfg.get("smart_training", {})),
+        }
+    )
+    return summary
+
+
+def plan_smart_retry(
+    cfg: Dict[str, Any],
+    failure_type: str,
+    failure_message: str,
+    attempt_index: int,
+) -> Tuple[Dict[str, Any], Dict[str, Any]] | None:
+    policy = cfg.get("smart_training", {})
+    if not bool(policy.get("enabled", True)):
+        return None
+
+    max_attempts = max(int(policy.get("max_attempts", 1)), 1)
+    if attempt_index >= max_attempts:
+        return None
+
+    next_cfg = copy.deepcopy(cfg)
+    next_policy = next_cfg.setdefault("smart_training", {})
+    next_attempt = attempt_index + 1
+    changes: list[str] = []
+    min_batch_size = max(int(next_policy.get("min_batch_size", 1)), 1)
+    min_img_size = max(int(next_policy.get("min_img_size", 256)), 32)
+    min_lr = float(next_policy.get("min_lr", 0.00025))
+
+    def reduce_batch_size() -> bool:
+        current_batch = int(next_cfg["train"].get("batch_size", 1))
+        if current_batch <= min_batch_size:
+            return False
+        new_batch = max(min_batch_size, current_batch // 2)
+        if new_batch == current_batch:
+            return False
+        accum = max(int(next_cfg["train"].get("grad_accum", 1)), 1)
+        scale = max(int(math.ceil(current_batch / max(new_batch, 1))), 1)
+        next_cfg["train"]["batch_size"] = new_batch
+        next_cfg["train"]["grad_accum"] = accum * scale
+        changes.append(f"batch_size {current_batch}->{new_batch}")
+        changes.append(f"grad_accum {accum}->{next_cfg['train']['grad_accum']}")
+        return True
+
+    def reduce_img_size() -> bool:
+        current_img = int(next_cfg["train"].get("img_size", 512))
+        if current_img <= min_img_size:
+            return False
+        proposed = max(min_img_size, current_img - 64)
+        next_cfg["train"]["img_size"] = _next_multiple_of_32(proposed)
+        if int(next_cfg["train"]["img_size"]) == current_img:
+            return False
+        changes.append(f"img_size {current_img}->{next_cfg['train']['img_size']}")
+        return True
+
+    def disable_amp() -> bool:
+        if not bool(next_cfg["train"].get("amp", False)):
+            return False
+        next_cfg["train"]["amp"] = False
+        changes.append("amp true->false")
+        return True
+
+    def reduce_lr() -> bool:
+        current_lr = float(next_cfg["train"].get("lr", min_lr))
+        if current_lr <= min_lr:
+            return False
+        new_lr = max(min_lr, round(current_lr * 0.5, 6))
+        if new_lr == current_lr:
+            return False
+        next_cfg["train"]["lr"] = new_lr
+        changes.append(f"lr {current_lr}->{new_lr}")
+        return True
+
+    def soften_augmentation() -> bool:
+        augment = next_cfg.setdefault("augment", {})
+        adjusted = False
+        for key in ("mosaic", "cutmix", "random_cut", "translate", "scale", "hsv_s", "hsv_v"):
+            current_value = float(augment.get(key, 0.0))
+            new_value = round(current_value * 0.5, 4)
+            if new_value != current_value:
+                augment[key] = new_value
+                changes.append(f"{key} {current_value}->{new_value}")
+                adjusted = True
+        return adjusted
+
+    changed = False
+    if failure_type == "oom":
+        next_cfg["train"]["num_workers"] = 0
+        changes.append("num_workers ->0")
+        changed = reduce_batch_size()
+        if not changed:
+            changed = reduce_img_size()
+    elif failure_type == "amp_instability":
+        changed = disable_amp()
+        if not changed:
+            changed = reduce_lr()
+    elif failure_type in {"non_finite_loss", "non_finite_grad"}:
+        changed = disable_amp()
+        changed = reduce_lr() or changed
+        changed = soften_augmentation() or changed
+        if failure_type == "non_finite_grad":
+            changed = reduce_batch_size() or changed
+    else:
+        return None
+
+    if not changed:
+        return None
+
+    base_out_dir = next_policy.get("base_out_dir") or next_cfg.get("logging", {}).get("out_dir", "")
+    next_policy["base_out_dir"] = base_out_dir
+    next_policy["last_failure_type"] = failure_type
+    next_policy["last_failure_message"] = failure_message
+    next_policy["attempt"] = next_attempt
+    next_cfg.setdefault("logging", {})
+    next_cfg["logging"]["out_dir"] = build_attempt_out_dir(base_out_dir, next_attempt)
+
+    return next_cfg, {
+        "failure_type": failure_type,
+        "failure_message": failure_message,
+        "attempt": attempt_index,
+        "next_attempt": next_attempt,
+        "changes": changes,
+        "out_dir": next_cfg["logging"]["out_dir"],
+    }
 
 
 def write_resolved_config(cfg: Dict[str, Any], output_path: str | Path) -> Path:

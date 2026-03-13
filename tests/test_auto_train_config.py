@@ -12,7 +12,7 @@ import numpy as np
 import yaml
 
 from datasets.yolo_seg import YOLOSegDataset
-from utils.auto_train_config import resolve_training_config
+from utils.auto_train_config import plan_smart_retry, resolve_training_config
 from utils.data_config import load_dataset_yaml
 
 
@@ -95,6 +95,52 @@ class TestAutoTrainConfig(unittest.TestCase):
         self.assertEqual(cfg["device"], "cpu")
         self.assertEqual(cfg["model"]["profile"], "firefly")
         self.assertEqual(summary["model_display_name"], "Firefly")
+
+    def test_plan_smart_retry_disables_amp_after_amp_instability(self) -> None:
+        yaml_path = self._create_dataset_yaml()
+        fake_props = SimpleNamespace(name="Tiny GPU", total_memory=2 * 1024 ** 3, major=7, minor=5)
+
+        with (
+            mock.patch("utils.auto_train_config.torch.cuda.is_available", return_value=True),
+            mock.patch("utils.auto_train_config.torch.cuda.get_device_properties", return_value=fake_props),
+            mock.patch("utils.auto_train_config.torch.cuda.is_bf16_supported", return_value=False),
+        ):
+            cfg, _ = resolve_training_config(None, str(yaml_path))
+
+        cfg["train"]["amp"] = True
+        cfg["logging"]["out_dir"] = "runs/retry_test"
+        cfg["smart_training"]["base_out_dir"] = cfg["logging"]["out_dir"]
+        retry_plan = plan_smart_retry(cfg, "amp_instability", "amp failure", attempt_index=1)
+
+        self.assertIsNotNone(retry_plan)
+        retry_cfg, retry_info = retry_plan
+        self.assertFalse(retry_cfg["train"]["amp"])
+        self.assertEqual(retry_info["next_attempt"], 2)
+        self.assertTrue(retry_cfg["logging"]["out_dir"].endswith("retry02"))
+
+    def test_plan_smart_retry_reduces_batch_size_for_oom(self) -> None:
+        yaml_path = self._create_dataset_yaml()
+        fake_props = SimpleNamespace(name="Tiny GPU", total_memory=4 * 1024 ** 3, major=7, minor=5)
+
+        with (
+            mock.patch("utils.auto_train_config.torch.cuda.is_available", return_value=True),
+            mock.patch("utils.auto_train_config.torch.cuda.get_device_properties", return_value=fake_props),
+            mock.patch("utils.auto_train_config.torch.cuda.is_bf16_supported", return_value=False),
+        ):
+            cfg, _ = resolve_training_config(None, str(yaml_path))
+
+        cfg["train"]["batch_size"] = 4
+        cfg["train"]["grad_accum"] = 2
+        cfg["logging"]["out_dir"] = "runs/retry_test"
+        cfg["smart_training"]["base_out_dir"] = cfg["logging"]["out_dir"]
+        retry_plan = plan_smart_retry(cfg, "oom", "CUDA out of memory", attempt_index=1)
+
+        self.assertIsNotNone(retry_plan)
+        retry_cfg, retry_info = retry_plan
+        self.assertEqual(retry_cfg["train"]["batch_size"], 2)
+        self.assertEqual(retry_cfg["train"]["grad_accum"], 4)
+        self.assertEqual(retry_cfg["train"]["num_workers"], 0)
+        self.assertIn("batch_size 4->2", retry_info["changes"])
 
 
 class TestTrainingAugmentations(unittest.TestCase):
