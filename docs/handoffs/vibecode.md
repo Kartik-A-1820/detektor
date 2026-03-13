@@ -179,3 +179,146 @@ Current state:
 - next accuracy work should focus on recall and early-epoch instability, not checkpoint plumbing
 
 
+
+## Latest Update: Repo Refactor, Validation Consolidation, and Verified 5-Epoch Run
+
+Date:
+- March 13, 2026
+
+User request:
+- clean the project layout and move root clutter into a more production-like structure
+- ignore generated outputs in git
+- remove the duplicate validation path
+- run one round of train / validate / test
+- push to `beta`
+
+Files changed:
+- [README.md](F:\detektor\README.md)
+  - updated top-level navigation to the new `docs/` layout
+  - updated command examples for moved utility entrypoints
+- [docs/README.md](F:\detektor\docs\README.md)
+  - added a documentation index
+- [docs/guides/QUICKSTART.md](F:\detektor\docs\guides\QUICKSTART.md)
+- [docs/reference/TOOLS.md](F:\detektor\docs\reference\TOOLS.md)
+- [docs/reference/VALIDATION_OUTPUT_SCHEMA.md](F:\detektor\docs\reference\VALIDATION_OUTPUT_SCHEMA.md)
+- [docs/internal/INTEGRATION_SUMMARY.md](F:\detektor\docs\internal\INTEGRATION_SUMMARY.md)
+- [docs/internal/REPORTING_IMPLEMENTATION_SUMMARY.md](F:\detektor\docs\internal\REPORTING_IMPLEMENTATION_SUMMARY.md)
+  - updated internal documentation links and command references
+- [.gitignore](F:\detektor\.gitignore)
+  - now ignores generated outputs broadly:
+    - `runs/`
+    - `artifacts/`
+    - `reports/`
+    - `.tmp_testdata/`
+- [scripts](F:\detektor\scripts)
+  - moved utility entrypoints out of root:
+    - `benchmark.py`
+    - `cli.py`
+    - `export_onnx.py`
+    - `package_model.py`
+    - `report.py`
+    - `run_smoke_checks.py`
+- [validate.py](F:\detektor\validate.py)
+  - absorbed the useful comprehensive features from the old `validate_v2.py`
+  - now supports:
+    - `--output-dir`
+    - `--save-images`
+    - `--max-images`
+    - `--compute-ap50-95`
+  - remains the single public validation command
+- [utils/auto_train_config.py](F:\detektor\utils\auto_train_config.py)
+  - fixed a bug where auto-tuning overwrote explicit user config values like `train.epochs`
+- [tests/test_auto_train_config.py](F:\detektor\tests\test_auto_train_config.py)
+  - added regression coverage proving explicit epoch overrides are preserved
+
+Removed:
+- old duplicate validator `validate_v2.py`
+
+Important behavioral fix:
+- before this update, a config file containing `train.epochs: 5` was still being auto-expanded to `36` epochs
+- that bug is now fixed
+- resolved configs now preserve explicit overrides and only auto-tune unspecified values
+
+Verification:
+
+Unit tests:
+
+```powershell
+.\.venv\Scripts\python.exe -m unittest tests.test_auto_train_config
+```
+
+Status:
+- verified
+
+Smoke checks:
+
+```powershell
+.\.venv\Scripts\python.exe -m scripts.run_smoke_checks
+```
+
+Status:
+- verified
+- `7/7` checks passed
+
+Real training run:
+
+```powershell
+.\.venv\Scripts\python.exe train.py --config reports/refactor_verify_5epoch.yaml --data-yaml F:/data/data.yaml --run-val --val-freq 1
+```
+
+Status:
+- verified
+- completed as an actual `5` epoch run after the auto-config override fix
+
+Resolved config:
+- output: `runs/refactor_verify_5epoch/`
+- epochs: `5`
+- warmup_epochs: `1`
+- profile: `Comet`
+- img_size: `512`
+- batch_size: `4`
+- grad_accum: `2`
+
+Observed training validation trend:
+- epoch 1:
+  - validation failed before first checkpoint because `chimera_last.pt` did not exist yet
+- epoch 2:
+  - `P=0.0000` `R=0.0000` `mAP50=0.0000`
+- epoch 3:
+  - `P=0.0000` `R=0.0000` `mAP50=0.0000`
+- epoch 4:
+  - `P=0.0000` `R=0.0000` `mAP50=0.0000`
+- epoch 5:
+  - `P=0.5247` `R=0.2530` `mAP50=0.1463`
+
+Standalone validation after training:
+
+```powershell
+.\.venv\Scripts\python.exe validate.py --config reports/refactor_verify_5epoch.yaml --weights runs/refactor_verify_5epoch/chimera_final_weights.pt --data-yaml F:/data/data.yaml --output-dir runs/validate/refactor_verify_5epoch
+```
+
+Status:
+- verified
+
+Observed standalone validation results:
+- precision: `0.7808`
+- recall: `0.2913`
+- F1: `0.4243`
+- AP50: `0.2363`
+- mAP50: `0.0713`
+- mean box IoU: `0.6867`
+
+Per-class observation:
+- detections are still concentrated almost entirely in class `player`
+- classes `ball`, `goalkeeper`, and `referee` remained at `0.0` recall in this verified run
+
+Git:
+- pushed to `origin/beta`
+- commit: `2fd8830` `Refactor project layout and consolidate validation`
+
+Current state:
+- repository layout is cleaner and more production-like
+- generated outputs are no longer intended for git tracking
+- validation now has one canonical entrypoint: `validate.py`
+- explicit training config overrides are now honored correctly
+- the main remaining issue is model quality imbalance across classes, not project structure
