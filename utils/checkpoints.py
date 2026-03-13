@@ -7,6 +7,53 @@ import torch
 from torch import nn
 
 
+def _extract_model_config(model: nn.Module, config: Dict[str, Any] | None = None) -> Dict[str, Any]:
+    """Build a minimal serializable model config for checkpoint reconstruction."""
+    config_model = dict((config or {}).get("model", {}))
+    config_data = dict((config or {}).get("data", {}))
+    model_config = {
+        "profile": config_model.get("profile", "quasar"),
+        "display_name": config_model.get("display_name"),
+        "stem_channels": config_model.get("stem_channels", getattr(model.backbone.stem.conv, "out_channels", None)),
+        "backbone_channels": config_model.get("backbone_channels", getattr(model.backbone, "stage_channels", None)),
+        "backbone_depths": config_model.get("backbone_depths", getattr(model.backbone, "stage_depths", None)),
+        "neck_channels": config_model.get("neck_channels", getattr(model.neck, "out_channels", None)),
+        "head_feat_channels": config_model.get("head_feat_channels", getattr(model.detect_head, "feat_channels", None)),
+        "proto_k": config_model.get("proto_k", getattr(model, "proto_k", None)),
+        "num_classes": config_data.get("num_classes", getattr(model, "num_classes", None)),
+    }
+    return {key: value for key, value in model_config.items() if value is not None}
+
+
+def build_checkpoint_payload(
+    model: nn.Module,
+    *,
+    optimizer: torch.optim.Optimizer | None = None,
+    scaler: torch.cuda.amp.GradScaler | None = None,
+    scheduler: torch.optim.lr_scheduler.LRScheduler | None = None,
+    epoch: int = 0,
+    global_step: int = 0,
+    best_metric: float | None = None,
+    config: Dict[str, Any] | None = None,
+    ema_state: Dict[str, Any] | None = None,
+) -> Dict[str, Any]:
+    """Create a self-contained training payload with model architecture metadata."""
+    return {
+        "format_version": 2,
+        "model_class": model.__class__.__name__,
+        "model_state": model.state_dict(),
+        "model_config": _extract_model_config(model, config=config),
+        "optimizer_state": optimizer.state_dict() if optimizer is not None else None,
+        "scaler_state": scaler.state_dict() if scaler is not None else None,
+        "scheduler_state": scheduler.state_dict() if scheduler is not None else None,
+        "epoch": int(epoch),
+        "global_step": int(global_step),
+        "best_metric": best_metric,
+        "config": config,
+        "ema_state": ema_state,
+    }
+
+
 def save_checkpoint(
     checkpoint_path: str | Path,
     model: nn.Module,
@@ -25,17 +72,17 @@ def save_checkpoint(
     checkpoint_path = Path(checkpoint_path)
     checkpoint_path.parent.mkdir(parents=True, exist_ok=True)
 
-    payload: Dict[str, Any] = {
-        "model_state": model.state_dict(),
-        "optimizer_state": optimizer.state_dict() if optimizer is not None else None,
-        "scaler_state": scaler.state_dict() if scaler is not None else None,
-        "scheduler_state": scheduler.state_dict() if scheduler is not None else None,
-        "epoch": int(epoch),
-        "global_step": int(global_step),
-        "best_metric": best_metric,
-        "config": config,
-        "ema_state": ema_state,
-    }
+    payload = build_checkpoint_payload(
+        model,
+        optimizer=optimizer,
+        scaler=scaler,
+        scheduler=scheduler,
+        epoch=epoch,
+        global_step=global_step,
+        best_metric=best_metric,
+        config=config,
+        ema_state=ema_state,
+    )
     torch.save(payload, checkpoint_path)
 
     if is_best and best_checkpoint_path is not None:
@@ -67,7 +114,8 @@ def load_checkpoint(
         }
 
     checkpoint = torch.load(checkpoint_path, map_location=map_location)
-    model.load_state_dict(checkpoint["model_state"], strict=strict)
+    model_state = checkpoint.get("model_state", checkpoint)
+    model.load_state_dict(model_state, strict=strict)
 
     optimizer_state = checkpoint.get("optimizer_state")
     if optimizer is not None and optimizer_state is not None:

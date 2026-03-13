@@ -72,6 +72,7 @@ class TestAutoTrainConfig(unittest.TestCase):
         self.assertEqual(cfg["train"]["img_size"], 384)
         self.assertEqual(cfg["train"]["batch_size"], 2)
         self.assertEqual(cfg["train"]["grad_accum"], 4)
+        self.assertEqual(cfg["train"]["epochs"], 36)
         self.assertFalse(cfg["train"]["amp"])
         self.assertEqual(cfg["data"]["num_classes"], 1)
         self.assertEqual(cfg["data"]["names"], ["ball"])
@@ -93,6 +94,7 @@ class TestAutoTrainConfig(unittest.TestCase):
             cfg, summary = resolve_training_config(None, str(yaml_path))
 
         self.assertEqual(cfg["device"], "cpu")
+        self.assertEqual(cfg["train"]["epochs"], 24)
         self.assertEqual(cfg["model"]["profile"], "firefly")
         self.assertEqual(summary["model_display_name"], "Firefly")
 

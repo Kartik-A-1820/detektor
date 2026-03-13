@@ -30,7 +30,7 @@ DEFAULT_TRAINING_CONFIG: Dict[str, Any] = {
     },
     "train": {
         "img_size": 512,
-        "epochs": 5,
+        "epochs": 20,
         "batch_size": 8,
         "num_workers": 2,
         "lr": 0.002,
@@ -305,6 +305,27 @@ def _recommend_architecture_profile(device_name: str, total_vram_gb: float, data
     }
 
 
+def _recommend_epoch_count(dataset_size: int, device_name: str, total_vram_gb: float) -> int:
+    size_band = _dataset_size_band(dataset_size)
+    if device_name == "cpu":
+        base_epochs = {
+            "micro": 24,
+            "small": 20,
+            "medium": 16,
+            "large": 12,
+        }[size_band]
+    else:
+        base_epochs = {
+            "micro": 36,
+            "small": 30,
+            "medium": 24,
+            "large": 18,
+        }[size_band]
+        if total_vram_gb >= 6.0 and size_band in {"micro", "small"}:
+            base_epochs += 4
+    return int(base_epochs)
+
+
 def resolve_training_config(config_path: str | None, data_yaml: str | None) -> Tuple[Dict[str, Any], Dict[str, Any]]:
     cfg = copy.deepcopy(DEFAULT_TRAINING_CONFIG)
     if config_path:
@@ -347,6 +368,15 @@ def resolve_training_config(config_path: str | None, data_yaml: str | None) -> T
                 total_vram_gb=profile["total_vram_gb"] if resolved_device == "cuda" else 0.0,
                 dataset_size=dataset_size,
             ),
+        )
+        cfg["train"]["epochs"] = _recommend_epoch_count(
+            dataset_size=dataset_size,
+            device_name=resolved_device,
+            total_vram_gb=profile["total_vram_gb"] if resolved_device == "cuda" else 0.0,
+        )
+        cfg["train"]["warmup_epochs"] = min(
+            max(1, int(cfg["train"].get("warmup_epochs", 3))),
+            max(int(cfg["train"]["epochs"]) // 3, 1),
         )
 
         effective_batch = int(cfg["train"]["batch_size"]) * int(cfg["train"]["grad_accum"])

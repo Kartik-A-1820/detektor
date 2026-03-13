@@ -166,6 +166,18 @@ def build_model_from_checkpoint(
     if isinstance(checkpoint_cfg, Mapping):
         return build_model_from_config(checkpoint_cfg)
 
+    checkpoint_model_cfg = checkpoint.get("model_config") if isinstance(checkpoint, dict) else None
+    if isinstance(checkpoint_model_cfg, Mapping):
+        resolved_num_classes = int(
+            num_classes if num_classes is not None else checkpoint_model_cfg.get("num_classes", infer_num_classes_from_checkpoint(checkpoint))
+        )
+        resolved_proto_k = int(
+            proto_k if proto_k is not None else checkpoint_model_cfg.get("proto_k", infer_proto_k_from_checkpoint(checkpoint))
+        )
+        model_cfg = dict(checkpoint_model_cfg)
+        model_cfg["proto_k"] = resolved_proto_k
+        return build_model_from_model_config(model_cfg, num_classes=resolved_num_classes)
+
     inferred_num_classes = int(num_classes if num_classes is not None else infer_num_classes_from_checkpoint(checkpoint))
     inferred_proto_k = int(proto_k if proto_k is not None else infer_proto_k_from_checkpoint(checkpoint))
     model_cfg = {

@@ -399,6 +399,11 @@ class ChimeraODIS(nn.Module):
                 "boxes": scaled_boxes,
                 "scores": kept_scores,
                 "labels": kept_labels,
+                "masks": torch.zeros(
+                    (kept_boxes.shape[0], original_sizes[batch_index][0], original_sizes[batch_index][1]),
+                    device=imgs.device,
+                    dtype=torch.bool if not return_mask_probs else imgs.dtype,
+                ),
             }
             
             if task == "segment":

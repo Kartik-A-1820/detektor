@@ -16,7 +16,7 @@ from metrics import (
     smoke_test_detection_metrics,
     smoke_test_segmentation_metrics,
 )
-from models.factory import build_model_from_config, load_model_weights
+from models.factory import build_model_from_checkpoint, build_model_from_config, load_model_weights
 from utils.benchmark import benchmark_forward, benchmark_predict
 from utils.collate import detection_segmentation_collate_fn
 from utils.data_config import apply_dataset_yaml_overrides, print_resolved_dataset_config
@@ -65,6 +65,25 @@ def _has_invalid_prediction(prediction: Dict[str, Tensor]) -> bool:
     return False
 
 
+def _resolve_task_mode(dataset: Any) -> str:
+    task_mode = getattr(dataset, "task_mode", None)
+    if task_mode is not None:
+        return task_mode.value if hasattr(task_mode, "value") else str(task_mode)
+    return "segment"
+
+
+def _ensure_prediction_schema(
+    prediction: Dict[str, Tensor],
+    *,
+    image_size: tuple[int, int],
+    device: torch.device,
+) -> Dict[str, Tensor]:
+    if "masks" not in prediction:
+        prediction = dict(prediction)
+        prediction["masks"] = torch.zeros((prediction["boxes"].shape[0], image_size[0], image_size[1]), device=device, dtype=torch.bool)
+    return prediction
+
+
 def validate(
     config_path: str,
     data_yaml: str | None = None,
@@ -83,7 +102,12 @@ def validate(
         raise ValueError(f"conf_thresh must be in [0, 1], got {conf_thresh}")
 
     with open(config_path, "r", encoding="utf-8") as handle:
-        cfg = yaml.safe_load(handle)
+        fallback_cfg = yaml.safe_load(handle)
+
+    checkpoint = torch.load(weights, map_location="cpu")
+    checkpoint_cfg = checkpoint.get("config") if isinstance(checkpoint, dict) else None
+    cfg = checkpoint_cfg if isinstance(checkpoint_cfg, dict) else fallback_cfg
+
     if data_yaml:
         resolved_dataset = apply_dataset_yaml_overrides(cfg, data_yaml)
         print_resolved_dataset_config(resolved_dataset)
@@ -92,12 +116,16 @@ def validate(
     if requested_device == "cuda" and not torch.cuda.is_available():
         raise RuntimeError("CUDA was requested in the config, but CUDA is not available on this machine")
     device = torch.device("cuda" if requested_device == "cuda" else "cpu")
-    model = build_model_from_config(cfg).to(device)
+    if isinstance(checkpoint, dict):
+        model = build_model_from_checkpoint(checkpoint).to(device)
+    else:
+        model = build_model_from_config(cfg).to(device)
     checkpoint = torch.load(weights, map_location=device)
     load_model_weights(model, checkpoint, strict=True)
     model.eval()
 
     dataset = build_dataset(cfg, split="val")
+    task_mode = _resolve_task_mode(dataset)
     if len(dataset) == 0:
         raise RuntimeError("Validation dataset is empty")
     loader = DataLoader(
@@ -117,51 +145,58 @@ def validate(
     invalid_batches = 0
     any_gt = False
 
-    for imgs, targets in loader:
-        imgs = imgs.to(device)
-        normalized_targets = _normalize_validation_targets(imgs, targets)
-        original_sizes = [(imgs.shape[-2], imgs.shape[-1]) for _ in range(imgs.shape[0])]
+    with torch.no_grad():
+        for imgs, targets in loader:
+            imgs = imgs.to(device)
+            normalized_targets = _normalize_validation_targets(imgs, targets)
+            original_sizes = [(imgs.shape[-2], imgs.shape[-1]) for _ in range(imgs.shape[0])]
 
-        predictions = model.predict(
-            imgs,
-            original_sizes=original_sizes,
-            conf_thresh=conf_thresh,
-            iou_thresh=iou_thresh,
-            topk_pre_nms=topk_pre_nms,
-            max_det=max_det,
-            mask_thresh=mask_thresh,
-        )
+            predictions = model.predict(
+                imgs,
+                original_sizes=original_sizes,
+                conf_thresh=conf_thresh,
+                iou_thresh=iou_thresh,
+                topk_pre_nms=topk_pre_nms,
+                max_det=max_det,
+                mask_thresh=mask_thresh,
+                task=task_mode,
+            )
 
-        for prediction, target in zip(predictions, normalized_targets):
-            total_images += 1
-            total_predictions += int(prediction["boxes"].shape[0])
-            any_gt = any_gt or int(target["boxes"].shape[0]) > 0
+            for prediction, target, image_size in zip(predictions, normalized_targets, original_sizes):
+                prediction = _ensure_prediction_schema(
+                    prediction,
+                    image_size=image_size,
+                    device=imgs.device,
+                )
+                total_images += 1
+                total_predictions += int(prediction["boxes"].shape[0])
+                any_gt = any_gt or int(target["boxes"].shape[0]) > 0
 
-            if _has_invalid_prediction(prediction):
-                invalid_batches += 1
+                if _has_invalid_prediction(prediction):
+                    invalid_batches += 1
+                    prediction = {
+                        "boxes": torch.nan_to_num(prediction["boxes"], nan=0.0, posinf=0.0, neginf=0.0),
+                        "scores": torch.nan_to_num(prediction["scores"], nan=0.0, posinf=0.0, neginf=0.0),
+                        "labels": prediction["labels"],
+                        "masks": prediction["masks"].to(dtype=torch.bool),
+                    }
+
                 prediction = {
-                    "boxes": torch.nan_to_num(prediction["boxes"], nan=0.0, posinf=0.0, neginf=0.0),
-                    "scores": torch.nan_to_num(prediction["scores"], nan=0.0, posinf=0.0, neginf=0.0),
-                    "labels": prediction["labels"],
-                    "masks": prediction["masks"].to(dtype=torch.bool),
+                    "boxes": prediction["boxes"].detach().cpu(),
+                    "scores": prediction["scores"].detach().cpu(),
+                    "labels": prediction["labels"].detach().cpu(),
+                    "masks": prediction["masks"].detach().cpu().to(dtype=torch.bool),
+                }
+                target_cpu = {
+                    "boxes": target["boxes"].detach().cpu(),
+                    "labels": target["labels"].detach().cpu(),
+                    "masks": target["masks"].detach().cpu().to(dtype=torch.bool),
                 }
 
-            prediction = {
-                "boxes": prediction["boxes"].detach().cpu(),
-                "scores": prediction["scores"].detach().cpu(),
-                "labels": prediction["labels"].detach().cpu(),
-                "masks": prediction["masks"].detach().cpu().to(dtype=torch.bool),
-            }
-            target_cpu = {
-                "boxes": target["boxes"].detach().cpu(),
-                "labels": target["labels"].detach().cpu(),
-                "masks": target["masks"].detach().cpu().to(dtype=torch.bool),
-            }
-
-            all_predictions.append(prediction)
-            all_targets.append(target_cpu)
-            serializable_results.append(prediction_to_serializable(prediction))
-            image_summaries.append(summarize_image_result(prediction, target_cpu))
+                all_predictions.append(prediction)
+                all_targets.append(target_cpu)
+                serializable_results.append(prediction_to_serializable(prediction))
+                image_summaries.append(summarize_image_result(prediction, target_cpu))
 
     det_metrics = compute_detection_metrics(all_predictions, all_targets, iou_threshold=iou_thresh)
     seg_metrics = compute_segmentation_metrics(all_predictions, all_targets, iou_threshold=iou_thresh)

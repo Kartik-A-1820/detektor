@@ -14,7 +14,7 @@ from engine.ema import ModelEMA
 from models.chimera import ChimeraODIS
 from models.factory import build_model_from_config, load_model_weights
 from utils.auto_train_config import plan_smart_retry, resolve_training_config, summarize_resolved_training, write_resolved_config
-from utils.checkpoints import load_checkpoint, save_checkpoint
+from utils.checkpoints import build_checkpoint_payload, load_checkpoint, save_checkpoint
 from utils.collate import detection_segmentation_collate_fn
 from utils.logging_utils import append_jsonl, append_metrics_row, write_json
 from utils.model_info import get_model_info
@@ -226,7 +226,8 @@ def _train_once(
 
     start_epoch = 0
     global_step = 0
-    best_metric = float("inf")
+    best_metric_mode = "val_map50" if run_val else "train_loss"
+    best_metric = float("-inf") if best_metric_mode == "val_map50" else float("inf")
     if resume:
         resume_state = load_checkpoint(
             checkpoint_path=resume,
@@ -242,8 +243,8 @@ def _train_once(
             global_step = int(resume_state["global_step"])
             if resume_state["best_metric"] is not None:
                 best_metric = float(resume_state["best_metric"])
-            if ema is not None and resume_state["ema_state"] is not None:
-                ema.load_state_dict(resume_state["ema_state"])
+        if ema is not None and resume_state["ema_state"] is not None:
+            ema.load_state_dict(resume_state["ema_state"])
 
     write_json(
         summary_json_path,
@@ -258,6 +259,7 @@ def _train_once(
             "optimizer": cfg["train"].get("optimizer", "adamw").lower(),
             "scheduler": cfg["train"].get("scheduler", "cosine").lower(),
             "warmup_epochs": cfg["train"].get("warmup_epochs", 3),
+            "best_metric_mode": best_metric_mode,
         },
     )
 
@@ -407,34 +409,10 @@ def _train_once(
             if scheduler is not None:
                 scheduler.step()
 
-            is_best = epoch_loss_avg < best_metric
-            best_metric = min(best_metric, epoch_loss_avg)
+            selection_metric = epoch_loss_avg
+            is_best = selection_metric < best_metric if best_metric_mode == "train_loss" else False
 
-            save_checkpoint(
-                checkpoint_path=last_checkpoint_path,
-                model=model,
-                optimizer=optimizer,
-                scaler=scaler,
-                scheduler=scheduler,
-                epoch=epoch,
-                global_step=global_step,
-                best_metric=best_metric,
-                config=cfg,
-                ema_state=ema.state_dict() if ema is not None else None,
-                is_best=is_best,
-                best_checkpoint_path=best_checkpoint_path,
-            )
-
-            epoch_summary = {
-                "epoch": epoch + 1,
-                "epoch_loss": epoch_loss_avg,
-                "best_metric": best_metric,
-                "global_step": global_step,
-            }
-            append_jsonl(out_dir / "epoch_summaries.jsonl", epoch_summary)
-            print(f"epoch={epoch + 1} loss={epoch_loss_avg:.6f} best={best_metric:.6f}")
-            print(vram_report("After epoch: "))
-
+            val_log = None
             if run_val and (epoch + 1) % val_freq == 0:
                 print(f"\nRunning validation at epoch {epoch + 1}...")
                 try:
@@ -455,6 +433,8 @@ def _train_once(
                         "val_map50": val_metrics.get("detection", {}).get("ap50", 0.0),
                         "val_mean_iou": val_metrics.get("detection", {}).get("mean_iou", 0.0),
                     }
+                    selection_metric = float(val_log["val_map50"])
+                    is_best = selection_metric > best_metric
                     append_jsonl(out_dir / "val_metrics.jsonl", val_log)
                     print(
                         f"Validation: P={val_log['val_precision']:.3f} "
@@ -462,6 +442,38 @@ def _train_once(
                     )
                 except Exception as error:
                     print(f"warning: validation failed: {error}")
+
+            if is_best:
+                best_metric = selection_metric
+
+            save_checkpoint(
+                checkpoint_path=last_checkpoint_path,
+                model=model,
+                optimizer=optimizer,
+                scaler=scaler,
+                scheduler=scheduler,
+                epoch=epoch,
+                global_step=global_step,
+                best_metric=best_metric,
+                config=cfg,
+                ema_state=ema.state_dict() if ema is not None else None,
+                is_best=is_best,
+                best_checkpoint_path=best_checkpoint_path,
+            )
+
+            epoch_summary = {
+                "epoch": epoch + 1,
+                "epoch_loss": epoch_loss_avg,
+                "best_metric": best_metric,
+                "best_metric_mode": best_metric_mode,
+                "selection_metric": selection_metric,
+                "global_step": global_step,
+            }
+            if val_log is not None:
+                epoch_summary.update(val_log)
+            append_jsonl(out_dir / "epoch_summaries.jsonl", epoch_summary)
+            print(f"epoch={epoch + 1} loss={epoch_loss_avg:.6f} best_{best_metric_mode}={best_metric:.6f}")
+            print(vram_report("After epoch: "))
 
             try:
                 metrics_df = load_train_metrics(metrics_csv_path)
@@ -486,9 +498,27 @@ def _train_once(
         _clear_cuda_state()
 
     final_weights_path = out_dir / "chimera_final_weights.pt"
-    torch.save(model.state_dict(), final_weights_path)
+    torch.save(
+        build_checkpoint_payload(
+            model,
+            epoch=max(epochs - 1, 0),
+            global_step=global_step,
+            best_metric=best_metric,
+            config=cfg,
+            ema_state=ema.state_dict() if ema is not None else None,
+        ),
+        final_weights_path,
+    )
     if ema is not None:
-        torch.save(ema.state_dict(), out_dir / "chimera_ema_weights.pt")
+        torch.save(
+            {
+                "format_version": 2,
+                "ema_state": ema.state_dict(),
+                "config": cfg,
+                "model_config": cfg.get("model", {}),
+            },
+            out_dir / "chimera_ema_weights.pt",
+        )
 
     final_summary = {
         "last_epoch_loss": last_epoch_loss,
