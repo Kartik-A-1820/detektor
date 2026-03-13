@@ -8,9 +8,11 @@ import json
 import os
 import time
 from typing import Any, Dict, List, Optional, Sequence, Tuple
+from urllib.error import HTTPError, URLError
+from urllib.parse import urlencode
+from urllib.request import Request, urlopen
 
 import numpy as np
-import requests
 from PIL import Image, ImageDraw, ImageFont
 
 import gradio as gr
@@ -30,6 +32,63 @@ _COLOR_PALETTE = np.array(
     dtype=np.uint8,
 )
 _FONT = None
+
+
+def _encode_multipart_formdata(
+    fields: Dict[str, str],
+    files: Sequence[Tuple[str, str, bytes, str]],
+) -> Tuple[bytes, str]:
+    boundary = "detektor-ui-boundary"
+    body = bytearray()
+
+    for name, value in fields.items():
+        body.extend(f"--{boundary}\r\n".encode("utf-8"))
+        body.extend(f'Content-Disposition: form-data; name="{name}"\r\n\r\n'.encode("utf-8"))
+        body.extend(str(value).encode("utf-8"))
+        body.extend(b"\r\n")
+
+    for field_name, filename, content, content_type in files:
+        body.extend(f"--{boundary}\r\n".encode("utf-8"))
+        body.extend(
+            (
+                f'Content-Disposition: form-data; name="{field_name}"; '
+                f'filename="{filename}"\r\n'
+            ).encode("utf-8")
+        )
+        body.extend(f"Content-Type: {content_type}\r\n\r\n".encode("utf-8"))
+        body.extend(content)
+        body.extend(b"\r\n")
+
+    body.extend(f"--{boundary}--\r\n".encode("utf-8"))
+    return bytes(body), f"multipart/form-data; boundary={boundary}"
+
+
+def _post_json_multipart(
+    url: str,
+    files: Sequence[Tuple[str, str, bytes, str]],
+    params: Dict[str, Any],
+    timeout: int,
+) -> Dict[str, Any]:
+    query = urlencode({k: v for k, v in params.items() if v is not None})
+    request_url = f"{url}?{query}" if query else url
+    body, content_type = _encode_multipart_formdata({}, files)
+    request = Request(
+        request_url,
+        data=body,
+        headers={"Content-Type": content_type, "Accept": "application/json"},
+        method="POST",
+    )
+
+    try:
+        with urlopen(request, timeout=timeout) as response:
+            payload = response.read().decode("utf-8")
+    except HTTPError as exc:
+        detail = exc.read().decode("utf-8", errors="replace")
+        raise RuntimeError(f"HTTP {exc.code}: {detail}") from exc
+    except URLError as exc:
+        raise RuntimeError(f"Request failed: {exc.reason}") from exc
+
+    return json.loads(payload)
 
 
 def _get_font() -> ImageFont.ImageFont:
@@ -163,15 +222,14 @@ def _send_single_request(
         "include_masks": include_masks,
     }
     start = time.perf_counter()
-    response = requests.post(
-        f"{backend_url.rstrip('/')}/v1/predict",
-        files=files,
-        params={k: v for k, v in params.items() if v is not None},
+    response_json = _post_json_multipart(
+        url=f"{backend_url.rstrip('/')}/v1/predict",
+        files=[("image", files["image"][0], files["image"][1], files["image"][2])],
+        params=params,
         timeout=60,
     )
     duration_ms = (time.perf_counter() - start) * 1000.0
-    response.raise_for_status()
-    return response.json(), duration_ms
+    return response_json, duration_ms
 
 
 def _send_batch_request(
@@ -196,15 +254,14 @@ def _send_batch_request(
         "include_masks": include_masks,
     }
     start = time.perf_counter()
-    response = requests.post(
-        f"{backend_url.rstrip('/')}/v1/predict_batch",
-        files=files,
-        params={k: v for k, v in params.items() if v is not None},
+    response_json = _post_json_multipart(
+        url=f"{backend_url.rstrip('/')}/v1/predict_batch",
+        files=[(field, filename, content, content_type) for field, (filename, content, content_type) in files],
+        params=params,
         timeout=120,
     )
     duration_ms = (time.perf_counter() - start) * 1000.0
-    response.raise_for_status()
-    return response.json(), duration_ms
+    return response_json, duration_ms
 
 
 def run_single_inference(
@@ -252,7 +309,9 @@ def _load_images_from_files(file_inputs: Optional[List[Any]]) -> List[Image.Imag
     images: List[Image.Image] = []
     for file_obj in file_inputs or []:
         path: Optional[str] = None
-        if isinstance(file_obj, dict) and "name" in file_obj:
+        if isinstance(file_obj, str):
+            path = file_obj
+        elif isinstance(file_obj, dict) and "name" in file_obj:
             path = file_obj["name"]
         elif hasattr(file_obj, "name"):
             path = getattr(file_obj, "name")
@@ -363,7 +422,7 @@ def build_interface() -> gr.Blocks:
             )
 
         with gr.Tab("Batch (Experimental)"):
-            batch_images = gr.Files(label="Upload multiple images", type="file")
+            batch_images = gr.Files(label="Upload multiple images", type="filepath")
             batch_conf = gr.Slider(0.05, 0.95, value=0.35, step=0.01, label="Confidence threshold")
             batch_iou = gr.Slider(0.1, 0.9, value=0.5, step=0.01, label="IoU threshold")
             batch_max_det = gr.Slider(1, 300, value=100, step=1, label="Max detections per image")
