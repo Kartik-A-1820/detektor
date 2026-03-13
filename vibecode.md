@@ -442,3 +442,134 @@ Interpretation:
 Most important updated conclusion:
 - the project is now materially easier to use on low-VRAM GPUs because training no longer depends on the user manually tuning core runtime settings
 - the next accuracy-oriented follow-up should focus on stronger augmentation strategies such as mosaic/mixup/copy-paste and on improving target assignment / head calibration
+
+## Follow-up Status Update: Advanced Augmentation And Auto-Architecture Selection
+
+Date:
+- March 13, 2026
+
+User request:
+- add stronger Ultralytics-style training augmentations including mosaic, cutmix, and random cutout
+- auto-select not only runtime settings but also the model architecture from CPU through multiple VRAM tiers
+- run a complete 5-epoch training on the current device after clearing existing `runs/`
+- push verified changes to `beta`
+
+Files changed in this follow-up:
+- [datasets/yolo_seg.py](F:\detektor\datasets\yolo_seg.py)
+  - added mosaic composition for 4-image training batches
+  - added cutmix region replacement with instance-set remapping
+  - added random cutout augmentation
+  - kept validation/inference deterministic and augmentation-free
+- [utils/auto_train_config.py](F:\detektor\utils\auto_train_config.py)
+  - now resolves architecture profiles as well as batch/img-size settings
+  - adds CPU fallback when detected GPU VRAM is below roughly `512 MB`
+  - auto-selects advanced augmentation strengths from dataset size
+- [models/factory.py](F:\detektor\models\factory.py)
+  - new central model factory for named architecture profiles and checkpoint-aware model reconstruction
+- [train.py](F:\detektor\train.py)
+  - now builds the resolved architecture from config instead of assuming one fixed model shape
+  - prints resolved model profile/name during training
+- [validate.py](F:\detektor\validate.py)
+  - now loads the resolved architecture from config
+- [validate_v2.py](F:\detektor\validate_v2.py)
+  - now loads the resolved architecture from config
+- [infer.py](F:\detektor\infer.py)
+  - now reconstructs the correct architecture from checkpoint metadata
+- [api/utils.py](F:\detektor\api\utils.py)
+  - now reconstructs the correct architecture from checkpoint metadata for serving
+- [tests/test_auto_train_config.py](F:\detektor\tests\test_auto_train_config.py)
+  - added coverage for CPU fallback and named profile selection
+  - added deterministic checks for mosaic and cutmix behavior
+
+Named architecture ladder now used by the resolver:
+- `Firefly`: CPU / below `512 MB` VRAM fallback
+- `Comet`: about `512 MB`
+- `Nova`: about `1 GB`
+- `Pulsar`: about `2 GB`
+- `Quasar`: about `4 GB`
+- `Supernova`: beyond that
+
+Verification performed before full training:
+
+```powershell
+cmd /c ".venv\Scripts\activate.bat && python -m unittest tests.test_auto_train_config tests.test_model tests.test_predict"
+```
+
+Status:
+- verified
+
+### Full 5-epoch training verification on this machine
+
+Preparation performed:
+- removed existing `runs/` contents before training, per user request
+
+Command used:
+
+```powershell
+cmd /c ".venv\Scripts\activate.bat && python train.py --data-yaml F:/data/data.yaml --run-val --val-freq 1"
+```
+
+Resolved runtime on this machine:
+- GPU: `NVIDIA GeForce GTX 1650 Ti`
+- VRAM: about `4.0 GB`
+- resolved architecture: `Comet`
+- device: `cuda`
+- `img_size: 512`
+- `batch_size: 4`
+- `grad_accum: 2`
+- effective batch size: `8`
+- `amp: false`
+- `num_workers: 0` after safe fallback in this environment
+
+Resolved advanced augmentation policy used:
+- mosaic: `0.85`
+- cutmix: `0.20`
+- random cutout: `0.40`
+- HSV jitter
+- horizontal flip
+- light vertical flip
+- translation
+- scale jitter
+
+Numerical stability result:
+- verified stable
+- no non-finite loss warnings were emitted
+- no non-finite gradient warnings were emitted
+- training completed all `5` epochs successfully
+
+Observed epoch losses:
+- Epoch 1 loss: `3.3241`
+- Epoch 2 loss: `5.7577`
+- Epoch 3 loss: `7.5913`
+- Epoch 4 loss: `5.0533`
+- Epoch 5 loss: `3.9618`
+
+Observed validation metrics:
+- Epoch 1:
+  - precision: `0.0000`
+  - recall: `0.0000`
+  - mAP50: `0.0000`
+- Epoch 2:
+  - precision: `0.0000`
+  - recall: `0.0000`
+  - mAP50: `0.0000`
+- Epoch 3:
+  - precision: `0.0000`
+  - recall: `0.0000`
+  - mAP50: `0.0000`
+- Epoch 4:
+  - precision: `0.1214`
+  - recall: `0.2044`
+  - mAP50: `0.0316`
+  - mean IoU: `0.6884`
+- Epoch 5:
+  - precision: `0.4894`
+  - recall: `0.0784`
+  - mAP50: `0.0438`
+  - mean IoU: `0.7144`
+
+Interpretation:
+- the training path remains numerically stable with the new augmentation pipeline and architecture resolver
+- the model is no longer stuck in an immediate numerical failure mode
+- validation shows non-zero learning progress by epochs 4 and 5
+- quality is still early-stage and not yet at a strong final baseline, but the requested infrastructure changes are working end-to-end

@@ -16,7 +16,7 @@ from metrics import (
     smoke_test_detection_metrics,
     smoke_test_segmentation_metrics,
 )
-from models.chimera import ChimeraODIS
+from models.factory import build_model_from_config, load_model_weights
 from utils.benchmark import benchmark_forward, benchmark_predict
 from utils.collate import detection_segmentation_collate_fn
 from utils.data_config import apply_dataset_yaml_overrides, print_resolved_dataset_config
@@ -92,15 +92,9 @@ def validate(
     if requested_device == "cuda" and not torch.cuda.is_available():
         raise RuntimeError("CUDA was requested in the config, but CUDA is not available on this machine")
     device = torch.device("cuda" if requested_device == "cuda" else "cpu")
-    model = ChimeraODIS(
-        num_classes=cfg["data"]["num_classes"],
-        proto_k=cfg["model"]["proto_k"],
-    ).to(device)
+    model = build_model_from_config(cfg).to(device)
     checkpoint = torch.load(weights, map_location=device)
-    if isinstance(checkpoint, dict) and "model_state" in checkpoint:
-        model.load_state_dict(checkpoint["model_state"], strict=True)
-    else:
-        model.load_state_dict(checkpoint, strict=True)
+    load_model_weights(model, checkpoint, strict=True)
     model.eval()
 
     dataset = build_dataset(cfg, split="val")

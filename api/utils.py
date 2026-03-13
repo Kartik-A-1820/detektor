@@ -9,6 +9,7 @@ import torch
 from torch import Tensor
 
 from models.chimera import ChimeraODIS
+from models.factory import build_model_from_checkpoint, infer_num_classes_from_checkpoint, load_model_weights
 from utils.visualize import draw_boxes
 
 
@@ -23,15 +24,7 @@ def resolve_device(device_name: str | None = None) -> torch.device:
 
 def _detect_num_classes(checkpoint: Dict) -> int:
     """Auto-detect num_classes from checkpoint by inspecting classification head."""
-    if isinstance(checkpoint, dict) and "model_state" in checkpoint:
-        state_dict = checkpoint["model_state"]
-    else:
-        state_dict = checkpoint
-    
-    for key in state_dict.keys():
-        if "cls_preds" in key and "bias" in key:
-            return state_dict[key].shape[0]
-    return 1
+    return infer_num_classes_from_checkpoint(checkpoint)
 
 
 def load_model(
@@ -48,11 +41,8 @@ def load_model(
         num_classes = _detect_num_classes(checkpoint)
         print(f"[INFO] auto-detected num_classes={num_classes} from checkpoint")
     
-    model = ChimeraODIS(num_classes=num_classes, proto_k=proto_k).to(device)
-    if isinstance(checkpoint, dict) and "model_state" in checkpoint:
-        model.load_state_dict(checkpoint["model_state"], strict=True)
-    else:
-        model.load_state_dict(checkpoint, strict=True)
+    model = build_model_from_checkpoint(checkpoint, num_classes=num_classes, proto_k=proto_k).to(device)
+    load_model_weights(model, checkpoint, strict=True)
     model.eval()
     return model, device
 

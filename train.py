@@ -11,6 +11,7 @@ from tqdm import tqdm
 
 from datasets import build_dataset
 from models.chimera import ChimeraODIS
+from models.factory import build_model_from_config, load_model_weights
 from utils.auto_train_config import resolve_training_config, write_resolved_config
 from utils.checkpoints import load_checkpoint, save_checkpoint
 from utils.collate import detection_segmentation_collate_fn
@@ -42,10 +43,7 @@ def _load_weights_if_provided(model: ChimeraODIS, weights: str | None, device: t
     if not weights:
         return
     checkpoint = torch.load(weights, map_location=device)
-    if isinstance(checkpoint, dict) and "model_state" in checkpoint:
-        model.load_state_dict(checkpoint["model_state"], strict=True)
-    else:
-        model.load_state_dict(checkpoint, strict=True)
+    load_model_weights(model, checkpoint, strict=True)
 
 
 def _has_non_finite_loss_components(loss_dict: Dict[str, torch.Tensor]) -> bool:
@@ -85,10 +83,7 @@ def train(
     set_vram_cap(cfg["train"].get("vram_cap", 0.8))
     device = _resolve_device(cfg.get("device", "cpu"))
 
-    model = ChimeraODIS(
-        num_classes=cfg["data"]["num_classes"],
-        proto_k=cfg["model"]["proto_k"],
-    ).to(device)
+    model = build_model_from_config(cfg).to(device)
     model_info = get_model_info(model)
     if model_info["trainable_params"] == 0:
         print("warning: model has no trainable parameters")
@@ -179,6 +174,8 @@ def train(
     print(f"resolved_amp: {resolved_runtime['amp']}")
     print(f"resolved_num_workers: {resolved_runtime['num_workers']}")
     print(f"resolved_out_dir: {resolved_runtime['out_dir']}")
+    print(f"resolved_model_profile: {resolved_runtime['model_profile']}")
+    print(f"resolved_model_name: {resolved_runtime['model_display_name']}")
     print(f"resolved_augment: {resolved_runtime['augment']}")
     metrics_csv_path = out_dir / "train_metrics.csv"
     metrics_jsonl_path = out_dir / "train_metrics.jsonl"

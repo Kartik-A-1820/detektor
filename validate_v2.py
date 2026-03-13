@@ -24,7 +24,7 @@ from torch.utils.data import DataLoader
 from tqdm import tqdm
 
 from datasets import build_dataset
-from models.chimera import ChimeraODIS
+from models.factory import build_model_from_config, load_model_weights
 from utils.box_ops import box_iou
 from utils.collate import detection_segmentation_collate_fn
 from utils.data_config import apply_dataset_yaml_overrides, print_resolved_dataset_config
@@ -212,16 +212,10 @@ def validate_comprehensive(
     
     # Setup device and model
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    model = ChimeraODIS(
-        num_classes=num_classes,
-        proto_k=cfg["model"]["proto_k"],
-    ).to(device)
+    model = build_model_from_config(cfg).to(device)
     
     checkpoint = torch.load(weights, map_location=device)
-    if isinstance(checkpoint, dict) and "model_state" in checkpoint:
-        model.load_state_dict(checkpoint["model_state"], strict=True)
-    else:
-        model.load_state_dict(checkpoint, strict=True)
+    load_model_weights(model, checkpoint, strict=True)
     model.eval()
     
     # Setup dataset
