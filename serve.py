@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 import argparse
+import copy
 import logging
 import os
+import threading
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
+from pathlib import Path
 from typing import AsyncIterator, List, Optional
 
 import uvicorn
@@ -23,6 +26,7 @@ from api.logging_utils import (
     RequestTimer,
 )
 from api.metrics import get_metrics_store
+from api.run_artifacts import discover_checkpoint_options, load_run_artifacts
 from api.schemas import (
     BatchPredictionResponse,
     ErrorResponse,
@@ -62,6 +66,8 @@ class ServiceConfig:
     enable_warmup: bool = True
     warmup_iterations: int = 3
     log_level: str = "INFO"
+    ui_enabled: bool = False
+    ui_path: str = "/ui"
 
 
 class ModelStore:
@@ -71,14 +77,96 @@ class ModelStore:
         self.inference_service: Optional[InferenceService] = None
         self.config: Optional[ServiceConfig] = None
         self.num_classes: Optional[int] = None
+        self.active_weights: Optional[str] = None
+        self.active_checkpoint_key: Optional[str] = None
+        self.run_dir: Optional[str] = None
+        self.checkpoint_paths: dict[str, str] = {}
+        self.runtime_state: dict = {}
+        self.lock = threading.RLock()
 
 
 MODEL_STORE = ModelStore()
 
 
+def _load_service(
+    config: ServiceConfig,
+    weights_path: str,
+    checkpoint_key: Optional[str] = None,
+    *,
+    warmup_iterations: Optional[int] = None,
+) -> None:
+    run_dir, checkpoint_options, default_key = discover_checkpoint_options(weights_path)
+    selected_key = checkpoint_key if checkpoint_key in checkpoint_options else default_key
+    selected_path = checkpoint_options.get(selected_key, Path(weights_path).expanduser().resolve())
+
+    LOGGER.info("Loading checkpoint '%s' from %s", selected_key, selected_path)
+    model, device = load_model(
+        weights=str(selected_path),
+        num_classes=config.num_classes,
+        proto_k=config.proto_k,
+        device_name=config.device,
+    )
+    inference_service = InferenceService(
+        model=model,
+        device=device,
+        image_size=config.image_size,
+        default_conf_thresh=config.conf_thresh,
+        default_iou_thresh=config.iou_thresh,
+        default_max_det=config.max_det,
+        default_topk_pre_nms=config.topk_pre_nms,
+        default_mask_thresh=config.mask_thresh,
+        default_include_masks=config.include_masks_default,
+    )
+
+    if config.enable_warmup and warmup_iterations and warmup_iterations > 0:
+        LOGGER.info("Warming up checkpoint '%s' with %d iteration(s)", selected_key, warmup_iterations)
+        inference_service.warmup(num_iterations=warmup_iterations)
+
+    runtime_state = load_run_artifacts(run_dir, selected_path, selected_key)
+    runtime_state["available_checkpoints"] = {
+        key: str(path) for key, path in checkpoint_options.items()
+    }
+    runtime_state["device"] = str(device)
+
+    with MODEL_STORE.lock:
+        MODEL_STORE.inference_service = inference_service
+        MODEL_STORE.config = config
+        MODEL_STORE.num_classes = model.num_classes
+        MODEL_STORE.active_weights = str(selected_path)
+        MODEL_STORE.active_checkpoint_key = selected_key
+        MODEL_STORE.run_dir = str(run_dir)
+        MODEL_STORE.checkpoint_paths = runtime_state["available_checkpoints"]
+        MODEL_STORE.runtime_state = runtime_state
+
+
+def get_runtime_state() -> dict:
+    with MODEL_STORE.lock:
+        return copy.deepcopy(MODEL_STORE.runtime_state)
+
+
+def get_service_snapshot() -> tuple[InferenceService, ServiceConfig]:
+    with MODEL_STORE.lock:
+        service = MODEL_STORE.inference_service
+        config = MODEL_STORE.config
+    if service is None or config is None:
+        raise RuntimeError("Model is not initialized")
+    return service, config
+
+
+def select_active_checkpoint(checkpoint_key: str) -> dict:
+    with MODEL_STORE.lock:
+        config = MODEL_STORE.config
+        current_weights = MODEL_STORE.active_weights or (MODEL_STORE.config.weights if MODEL_STORE.config else None)
+    if config is None or current_weights is None:
+        raise RuntimeError("Model is not initialized")
+    _load_service(config, current_weights, checkpoint_key=checkpoint_key, warmup_iterations=1)
+    return get_runtime_state()
+
+
 def create_app(config: ServiceConfig) -> FastAPI:
     """Create the production-ready FastAPI app for detektor inference serving."""
-    MODEL_STORE.config = config
+    with MODEL_STORE.lock:
+        MODEL_STORE.config = config
     
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
@@ -86,39 +174,8 @@ def create_app(config: ServiceConfig) -> FastAPI:
         setup_logging(level=config.log_level)
         
         LOGGER.info("Starting Detektor API v%s", API_VERSION)
-        LOGGER.info("Loading model from %s", config.weights)
-        
-        # Load model
-        model, device = load_model(
-            weights=config.weights,
-            num_classes=config.num_classes,
-            proto_k=config.proto_k,
-            device_name=config.device,
-        )
-        MODEL_STORE.num_classes = model.num_classes
-        
-        # Create inference service
-        inference_service = InferenceService(
-            model=model,
-            device=device,
-            image_size=config.image_size,
-            default_conf_thresh=config.conf_thresh,
-            default_iou_thresh=config.iou_thresh,
-            default_max_det=config.max_det,
-            default_topk_pre_nms=config.topk_pre_nms,
-            default_mask_thresh=config.mask_thresh,
-            default_include_masks=config.include_masks_default,
-        )
-        MODEL_STORE.inference_service = inference_service
-        
-        LOGGER.info("Model loaded on %s", device)
-        
-        # Warmup model
-        if config.enable_warmup:
-            LOGGER.info("Warming up model with %d iterations...", config.warmup_iterations)
-            inference_service.warmup(num_iterations=config.warmup_iterations)
-            LOGGER.info("Model warmup complete")
-        
+        LOGGER.info("Requested weights: %s", config.weights)
+        _load_service(config, config.weights, warmup_iterations=config.warmup_iterations)
         LOGGER.info("Service ready to accept requests")
         yield
         LOGGER.info("Shutting down service")
@@ -179,7 +236,8 @@ def create_app(config: ServiceConfig) -> FastAPI:
     @app.get("/health", response_model=HealthResponse, tags=["Health"])
     async def health() -> HealthResponse:
         """Health check endpoint - always returns OK if service is running."""
-        service = MODEL_STORE.inference_service
+        with MODEL_STORE.lock:
+            service = MODEL_STORE.inference_service
         return HealthResponse(
             status="ok",
             device=str(service.device) if service is not None else "uninitialized",
@@ -189,7 +247,8 @@ def create_app(config: ServiceConfig) -> FastAPI:
     @app.get("/ready", response_model=ReadyResponse, tags=["Health"])
     async def ready() -> ReadyResponse:
         """Readiness check endpoint - returns ready only if model is loaded."""
-        service = MODEL_STORE.inference_service
+        with MODEL_STORE.lock:
+            service = MODEL_STORE.inference_service
         is_ready = service is not None
         
         return ReadyResponse(
@@ -201,10 +260,12 @@ def create_app(config: ServiceConfig) -> FastAPI:
     @app.get("/version", response_model=VersionResponse, tags=["Health"])
     async def version() -> VersionResponse:
         """Version information endpoint."""
+        with MODEL_STORE.lock:
+            num_classes = MODEL_STORE.num_classes
         return VersionResponse(
             version=API_VERSION,
             model_type="ChimeraODIS",
-            num_classes=MODEL_STORE.num_classes,
+            num_classes=num_classes,
         )
     
     @app.get("/metrics", response_model=MetricsResponse, tags=["Monitoring"])
@@ -212,6 +273,19 @@ def create_app(config: ServiceConfig) -> FastAPI:
         """Service metrics endpoint."""
         stats = get_metrics_store().get_stats()
         return MetricsResponse(**stats)
+
+    @app.get("/runtime", tags=["Runtime"])
+    async def runtime() -> dict:
+        """Runtime metadata for the active run and checkpoint."""
+        return get_runtime_state()
+
+    @app.post("/runtime/select_model", tags=["Runtime"])
+    async def select_model(model_key: str = Query(..., description="Checkpoint key: best, last, or custom")) -> dict:
+        """Switch the active checkpoint without restarting the service."""
+        state = get_runtime_state()
+        if model_key not in state.get("available_checkpoints", {}):
+            raise HTTPException(status_code=404, detail=f"Unknown checkpoint key: {model_key}")
+        return select_active_checkpoint(model_key)
 
     @app.post("/v1/predict", response_model=PredictionResponse, tags=["Prediction"])
     async def predict_v1(
@@ -222,16 +296,17 @@ def create_app(config: ServiceConfig) -> FastAPI:
         include_masks: Optional[bool] = Query(None, description="Include segmentation masks"),
     ) -> PredictionResponse:
         """Run object detection and instance segmentation on a single image (v1 endpoint)."""
-        service = MODEL_STORE.inference_service
-        if service is None or MODEL_STORE.config is None:
-            raise HTTPException(status_code=503, detail="Model is not initialized")
+        try:
+            service, active_config = get_service_snapshot()
+        except RuntimeError as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
         
         request_id = get_request_id()
         log_request(LOGGER, "POST", "/v1/predict", request_id or "-")
         
         # Read and validate image
         image_bytes = await image.read()
-        max_size_bytes = MODEL_STORE.config.max_upload_size_mb * 1024 * 1024
+        max_size_bytes = active_config.max_upload_size_mb * 1024 * 1024
         validate_uploaded_image(
             image_bytes,
             image.content_type,
@@ -291,18 +366,19 @@ def create_app(config: ServiceConfig) -> FastAPI:
         include_masks: Optional[bool] = Query(None, description="Include segmentation masks"),
     ) -> BatchPredictionResponse:
         """Run object detection and instance segmentation on a batch of images."""
-        service = MODEL_STORE.inference_service
-        if service is None or MODEL_STORE.config is None:
-            raise HTTPException(status_code=503, detail="Model is not initialized")
+        try:
+            service, active_config = get_service_snapshot()
+        except RuntimeError as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
         
         request_id = get_request_id()
         log_request(LOGGER, "POST", "/v1/predict_batch", request_id or "-", num_images=len(images))
         
         # Validate batch size
-        if len(images) > MODEL_STORE.config.max_batch_size:
+        if len(images) > active_config.max_batch_size:
             raise HTTPException(
                 status_code=400,
-                detail=f"Batch size {len(images)} exceeds maximum {MODEL_STORE.config.max_batch_size}",
+                detail=f"Batch size {len(images)} exceeds maximum {active_config.max_batch_size}",
             )
         
         if len(images) == 0:
@@ -310,7 +386,7 @@ def create_app(config: ServiceConfig) -> FastAPI:
         
         # Read and validate all images
         images_bytes = []
-        max_size_bytes = MODEL_STORE.config.max_upload_size_mb * 1024 * 1024
+        max_size_bytes = active_config.max_upload_size_mb * 1024 * 1024
         
         for idx, img in enumerate(images):
             img_bytes = await img.read()
@@ -493,6 +569,18 @@ def main() -> None:
         choices=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"],
         help="Logging level (env: DETEKTOR_LOG_LEVEL)",
     )
+    parser.add_argument(
+        "--ui",
+        action="store_true",
+        default=os.getenv("DETEKTOR_UI", "false").lower() == "true",
+        help="Mount the built-in GUI at the configured UI path (env: DETEKTOR_UI)",
+    )
+    parser.add_argument(
+        "--ui-path",
+        type=str,
+        default=os.getenv("DETEKTOR_UI_PATH", "/ui"),
+        help="Path where the GUI will be mounted when --ui is enabled (env: DETEKTOR_UI_PATH)",
+    )
     
     args = parser.parse_args()
 
@@ -515,9 +603,28 @@ def main() -> None:
         enable_warmup=not args.no_warmup,
         warmup_iterations=args.warmup_iterations,
         log_level=args.log_level,
+        ui_enabled=args.ui,
+        ui_path=args.ui_path,
     )
     
     app = create_app(config)
+    if config.ui_enabled:
+        import gradio as gr
+
+        from ui.app import DetektorUIRuntime, build_interface
+
+        runtime = DetektorUIRuntime(
+            get_runtime_state=get_runtime_state,
+            get_service_snapshot=get_service_snapshot,
+            select_checkpoint=select_active_checkpoint,
+        )
+        app = gr.mount_gradio_app(
+            app,
+            build_interface(runtime=runtime),
+            path=config.ui_path,
+            allowed_paths=[str(Path.cwd())],
+            show_error=True,
+        )
     uvicorn.run(
         app,
         host=config.host,

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import unittest
 from contextlib import contextmanager
+from pathlib import Path
 from unittest.mock import patch
 
 import cv2
@@ -126,6 +127,32 @@ class ProductionAPITests(unittest.TestCase):
             payload = metrics.json()
             self.assertGreaterEqual(payload["total_requests"], 1)
             self.assertGreaterEqual(payload["total_predictions"], 1)
+
+    def test_runtime_endpoints_expose_and_switch_checkpoints(self) -> None:
+        config = ServiceConfig(weights="dummy.pt", enable_warmup=False)
+        get_metrics_store().reset()
+        with patch("serve.load_model", return_value=(DummyModel(), torch.device("cpu"))), patch(
+            "serve.discover_checkpoint_options",
+            return_value=(
+                Path("F:/detektor/runs/demo"),
+                {
+                    "best": Path("F:/detektor/runs/demo/chimera_best.pt"),
+                    "last": Path("F:/detektor/runs/demo/chimera_last.pt"),
+                },
+                "best",
+            ),
+        ), patch(
+            "serve.load_run_artifacts",
+            return_value={"available_checkpoints": {"best": "a", "last": "b"}, "active_checkpoint_key": "best"},
+        ):
+            app = create_app(config)
+            with TestClient(app) as client:
+                runtime = client.get("/runtime")
+                self.assertEqual(runtime.status_code, 200)
+                self.assertIn("active_checkpoint_key", runtime.json())
+
+                switched = client.post("/runtime/select_model", params={"model_key": "last"})
+                self.assertEqual(switched.status_code, 200)
 
 
 if __name__ == "__main__":

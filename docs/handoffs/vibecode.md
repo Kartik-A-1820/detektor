@@ -409,3 +409,84 @@ Current state:
 - the next major area of work is still actual model-accuracy improvement, not training automation
 
 
+
+## Latest Update: In-Process Serving UI With Checkpoint Switching
+
+Date:
+- March 13, 2026
+
+User request:
+- read latest status from this handoff
+- work on serving next
+- add a `serve` flag to launch a user-friendly GUI
+- support switching between `best` and `last`, defaulting to `best`
+- allow image uploads plus folder-based inference
+- show annotated predictions in the UI
+- surface dataset, training, and performance details from the selected run
+- keep the UI fast and lightweight
+
+Files changed:
+- [serve.py](F:\detektor\serve.py)
+  - added `--ui` and `--ui-path`
+  - UI now mounts into the same FastAPI process instead of requiring a second server
+  - startup now discovers sibling checkpoints and defaults to `chimera_best.pt` when available
+  - added runtime checkpoint switching without process restart
+  - added runtime metadata endpoints:
+    - `/runtime`
+    - `/runtime/select_model`
+- [ui/app.py](F:\detektor\ui\app.py)
+  - replaced the old thin backend client with a run-aware dashboard for in-process serving mode
+  - batch inference now uses the in-memory service directly for lower overhead
+  - UI now supports:
+    - checkpoint selection between `best` and `last`
+    - drag/drop image uploads
+    - folder path inference
+    - annotated gallery output
+    - dataset details
+    - training summary
+    - validation history
+    - training and validation curve plots
+    - saved run plot previews
+  - preserved a fallback standalone remote-backend mode for `python ui/app.py`
+- [api/run_artifacts.py](F:\detektor\api\run_artifacts.py)
+  - added run artifact discovery and parsing for:
+    - checkpoint siblings
+    - resolved config
+    - run summary
+    - training summary
+    - validation history
+    - saved plot paths
+- [tests/test_api.py](F:\detektor\tests\test_api.py)
+  - added coverage for runtime metadata and checkpoint switching endpoints
+- [tests/test_run_artifacts.py](F:\detektor\tests\test_run_artifacts.py)
+  - added coverage for checkpoint discovery and run artifact parsing
+
+New command:
+
+```powershell
+.\.venv\Scripts\python.exe serve.py --weights runs/refactor_verify_5epoch/chimera_last.pt --ui
+```
+
+Behavior:
+- if both `chimera_best.pt` and `chimera_last.pt` exist in the same run directory, serving now starts on `best`
+- the UI is mounted at `/ui` on the same host/port as the API
+- batch UI inference is chunked by `max_batch_size` and avoids the extra HTTP round-trip path in mounted mode
+
+Verification:
+- unit tests passed:
+  - `.\.venv\Scripts\python.exe -m unittest tests.test_run_artifacts tests.test_api`
+- Python compile check passed:
+  - `.\.venv\Scripts\python.exe -m py_compile serve.py ui/app.py api/run_artifacts.py`
+- Gradio interface construction smoke checks passed in both:
+  - standalone mode
+  - mounted runtime mode
+
+Status:
+- verified for code path, tests, and interface construction
+- not yet verified through a full live browser session against a real model in this update
+
+Current state:
+- serving now has an integrated GUI path suitable for local interactive use
+- the UI can inspect a training run and infer on images without manually wiring class maps or plot paths
+- `best` vs `last` is now a runtime choice instead of a restart-time choice
+- next work on serving should focus on live UX polish and real-model browser validation, not basic plumbing
