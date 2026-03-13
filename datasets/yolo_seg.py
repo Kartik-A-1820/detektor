@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 
 import cv2
 import numpy as np
@@ -29,6 +29,8 @@ class YOLOSegDataset(Dataset):
         img_size: int = 512,
         task: Optional[str] = None,
         auto_detect_task: bool = True,
+        augment: bool = False,
+        augment_cfg: Optional[Dict[str, float]] = None,
     ) -> None:
         """Initialize YOLO dataset with task detection.
         
@@ -40,6 +42,8 @@ class YOLOSegDataset(Dataset):
         """
         self.root = Path(root)
         self.img_size = int(img_size)
+        self.augment = bool(augment)
+        self.augment_cfg = augment_cfg or {}
         self.images_dir = self.root / "images"
         self.labels_dir = self.root / "labels"
 
@@ -68,6 +72,187 @@ class YOLOSegDataset(Dataset):
             self.task_mode = TaskMode.SEGMENT  # Default to segment
             print(f"Task mode defaulted to: {self.task_mode.value}")
 
+    def _empty_masks(self) -> Optional[Tensor]:
+        if self.task_mode == TaskMode.DETECT:
+            return None
+        return torch.zeros((0, self.img_size, self.img_size), dtype=torch.float32)
+
+    def _clip_boxes(self, boxes: np.ndarray) -> np.ndarray:
+        if boxes.size == 0:
+            return boxes.astype(np.float32).reshape(0, 4)
+        boxes = boxes.astype(np.float32)
+        boxes[:, 0::2] = np.clip(boxes[:, 0::2], 0.0, 1.0)
+        boxes[:, 1::2] = np.clip(boxes[:, 1::2], 0.0, 1.0)
+        widths = boxes[:, 2] - boxes[:, 0]
+        heights = boxes[:, 3] - boxes[:, 1]
+        keep = (widths > 1.0 / self.img_size) & (heights > 1.0 / self.img_size)
+        return boxes[keep]
+
+    def _resize_masks(self, masks: List[np.ndarray]) -> Optional[Tensor]:
+        if self.task_mode != TaskMode.SEGMENT:
+            return None
+        if not masks:
+            return self._empty_masks()
+        return torch.from_numpy(np.stack(masks, axis=0)).to(dtype=torch.float32)
+
+    def _apply_hsv_augmentation(self, image_rgb: np.ndarray) -> np.ndarray:
+        hsv_h = float(self.augment_cfg.get("hsv_h", 0.0))
+        hsv_s = float(self.augment_cfg.get("hsv_s", 0.0))
+        hsv_v = float(self.augment_cfg.get("hsv_v", 0.0))
+        if hsv_h <= 0.0 and hsv_s <= 0.0 and hsv_v <= 0.0:
+            return image_rgb
+
+        image_hsv = cv2.cvtColor(image_rgb, cv2.COLOR_RGB2HSV).astype(np.float32)
+        hue_shift = np.random.uniform(-hsv_h, hsv_h) * 180.0
+        sat_scale = 1.0 + np.random.uniform(-hsv_s, hsv_s)
+        val_scale = 1.0 + np.random.uniform(-hsv_v, hsv_v)
+
+        image_hsv[..., 0] = (image_hsv[..., 0] + hue_shift) % 180.0
+        image_hsv[..., 1] = np.clip(image_hsv[..., 1] * sat_scale, 0.0, 255.0)
+        image_hsv[..., 2] = np.clip(image_hsv[..., 2] * val_scale, 0.0, 255.0)
+        return cv2.cvtColor(image_hsv.astype(np.uint8), cv2.COLOR_HSV2RGB)
+
+    def _apply_flip_augmentation(
+        self,
+        image_rgb: np.ndarray,
+        boxes: np.ndarray,
+        masks: Optional[np.ndarray],
+    ) -> Tuple[np.ndarray, np.ndarray, Optional[np.ndarray]]:
+        if boxes.size == 0 and masks is None:
+            return image_rgb, boxes, masks
+
+        fliplr_prob = float(self.augment_cfg.get("fliplr", 0.0))
+        flipud_prob = float(self.augment_cfg.get("flipud", 0.0))
+
+        if np.random.rand() < fliplr_prob:
+            image_rgb = np.ascontiguousarray(np.flip(image_rgb, axis=1))
+            if boxes.size > 0:
+                x1 = boxes[:, 0].copy()
+                x2 = boxes[:, 2].copy()
+                boxes[:, 0] = 1.0 - x2
+                boxes[:, 2] = 1.0 - x1
+            if masks is not None:
+                masks = np.ascontiguousarray(np.flip(masks, axis=2))
+
+        if np.random.rand() < flipud_prob:
+            image_rgb = np.ascontiguousarray(np.flip(image_rgb, axis=0))
+            if boxes.size > 0:
+                y1 = boxes[:, 1].copy()
+                y2 = boxes[:, 3].copy()
+                boxes[:, 1] = 1.0 - y2
+                boxes[:, 3] = 1.0 - y1
+            if masks is not None:
+                masks = np.ascontiguousarray(np.flip(masks, axis=1))
+
+        return image_rgb, self._clip_boxes(boxes), masks
+
+    def _apply_affine_augmentation(
+        self,
+        image_rgb: np.ndarray,
+        boxes: np.ndarray,
+        labels: np.ndarray,
+        masks: Optional[np.ndarray],
+    ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, Optional[np.ndarray]]:
+        translate = float(self.augment_cfg.get("translate", 0.0))
+        scale = float(self.augment_cfg.get("scale", 0.0))
+        if boxes.size == 0 or (translate <= 0.0 and scale <= 0.0):
+            return image_rgb, boxes, labels, masks
+
+        scale_factor = np.random.uniform(1.0 - scale, 1.0 + scale)
+        tx = np.random.uniform(-translate, translate) * self.img_size
+        ty = np.random.uniform(-translate, translate) * self.img_size
+        center = self.img_size * 0.5
+        matrix = np.array(
+            [
+                [scale_factor, 0.0, tx + center * (1.0 - scale_factor)],
+                [0.0, scale_factor, ty + center * (1.0 - scale_factor)],
+            ],
+            dtype=np.float32,
+        )
+
+        warped_image = cv2.warpAffine(
+            image_rgb,
+            matrix,
+            (self.img_size, self.img_size),
+            flags=cv2.INTER_LINEAR,
+            borderMode=cv2.BORDER_CONSTANT,
+            borderValue=(114, 114, 114),
+        )
+
+        boxes_px = boxes.copy() * float(self.img_size)
+        corners = np.stack(
+            [
+                np.stack([boxes_px[:, 0], boxes_px[:, 1], np.ones(len(boxes_px))], axis=1),
+                np.stack([boxes_px[:, 2], boxes_px[:, 1], np.ones(len(boxes_px))], axis=1),
+                np.stack([boxes_px[:, 2], boxes_px[:, 3], np.ones(len(boxes_px))], axis=1),
+                np.stack([boxes_px[:, 0], boxes_px[:, 3], np.ones(len(boxes_px))], axis=1),
+            ],
+            axis=1,
+        )
+        warped_corners = corners @ matrix.T
+        min_xy = warped_corners.min(axis=1)
+        max_xy = warped_corners.max(axis=1)
+        warped_boxes = np.concatenate([min_xy, max_xy], axis=1) / float(self.img_size)
+        warped_boxes = self._clip_boxes(warped_boxes)
+
+        if warped_boxes.shape[0] != boxes.shape[0]:
+            valid = []
+            for idx, box in enumerate(np.concatenate([min_xy, max_xy], axis=1) / float(self.img_size)):
+                clipped = np.clip(box, 0.0, 1.0)
+                if (clipped[2] - clipped[0]) > 1.0 / self.img_size and (clipped[3] - clipped[1]) > 1.0 / self.img_size:
+                    valid.append(idx)
+            labels = labels[np.array(valid, dtype=np.int64)] if valid else labels[:0]
+            if masks is not None:
+                masks = masks[np.array(valid, dtype=np.int64)] if valid else masks[:0]
+        if masks is not None and len(masks) > 0:
+            warped_masks = []
+            for mask in masks:
+                warped_mask = cv2.warpAffine(
+                    mask.astype(np.float32),
+                    matrix,
+                    (self.img_size, self.img_size),
+                    flags=cv2.INTER_NEAREST,
+                    borderMode=cv2.BORDER_CONSTANT,
+                    borderValue=0.0,
+                )
+                warped_masks.append((warped_mask > 0.5).astype(np.float32))
+            masks = np.stack(warped_masks, axis=0) if warped_masks else masks[:0]
+
+        return warped_image, warped_boxes, labels, masks
+
+    def _apply_augmentations(
+        self,
+        image_rgb: np.ndarray,
+        boxes: Tensor,
+        labels: Tensor,
+        masks: Optional[Tensor],
+    ) -> Tuple[np.ndarray, Tensor, Tensor, Optional[Tensor]]:
+        if not self.augment:
+            return image_rgb, boxes, labels, masks
+
+        boxes_np = boxes.cpu().numpy().astype(np.float32)
+        labels_np = labels.cpu().numpy().astype(np.int64)
+        masks_np = None if masks is None else masks.cpu().numpy().astype(np.float32)
+
+        image_rgb = self._apply_hsv_augmentation(image_rgb)
+        image_rgb, boxes_np, masks_np = self._apply_flip_augmentation(image_rgb, boxes_np, masks_np)
+        image_rgb, boxes_np, labels_np, masks_np = self._apply_affine_augmentation(
+            image_rgb,
+            boxes_np,
+            labels_np,
+            masks_np,
+        )
+
+        boxes_tensor = torch.from_numpy(boxes_np.astype(np.float32)).reshape(-1, 4)
+        labels_tensor = torch.from_numpy(labels_np.astype(np.int64)).reshape(-1)
+        masks_tensor = None
+        if self.task_mode == TaskMode.SEGMENT:
+            if masks_np is None or len(masks_np) == 0:
+                masks_tensor = self._empty_masks()
+            else:
+                masks_tensor = torch.from_numpy(masks_np.astype(np.float32))
+        return image_rgb, boxes_tensor, labels_tensor, masks_tensor
+
     def __len__(self) -> int:
         return len(self.images)
 
@@ -81,20 +266,18 @@ class YOLOSegDataset(Dataset):
             Tuple of (boxes, labels, masks) where masks can be None for detect mode
         """
         if not label_path.exists():
-            empty_masks = None if self.task_mode == TaskMode.DETECT else torch.zeros((0, self.img_size, self.img_size), dtype=torch.float32)
             return (
                 torch.zeros((0, 4), dtype=torch.float32),
                 torch.zeros((0,), dtype=torch.long),
-                empty_masks,
+                self._empty_masks(),
             )
 
         raw_text = label_path.read_text(encoding="utf-8").strip()
         if not raw_text:
-            empty_masks = None if self.task_mode == TaskMode.DETECT else torch.zeros((0, self.img_size, self.img_size), dtype=torch.float32)
             return (
                 torch.zeros((0, 4), dtype=torch.float32),
                 torch.zeros((0,), dtype=torch.long),
-                empty_masks,
+                self._empty_masks(),
             )
 
         boxes: List[List[float]] = []
@@ -171,21 +354,16 @@ class YOLOSegDataset(Dataset):
                 masks.append(mask)
 
         if not boxes:
-            empty_masks = None if self.task_mode == TaskMode.DETECT else torch.zeros((0, self.img_size, self.img_size), dtype=torch.float32)
             return (
                 torch.zeros((0, 4), dtype=torch.float32),
                 torch.zeros((0,), dtype=torch.long),
-                empty_masks,
+                self._empty_masks(),
             )
-
-        masks_tensor = None
-        if self.task_mode == TaskMode.SEGMENT and masks:
-            masks_tensor = torch.from_numpy(np.stack(masks, axis=0)).to(dtype=torch.float32)
 
         return (
             torch.tensor(boxes, dtype=torch.float32),
             torch.tensor(labels, dtype=torch.long),
-            masks_tensor,
+            self._resize_masks(masks or []),
         )
 
     def __getitem__(self, idx: int) -> Tuple[Tensor, dict]:
@@ -197,11 +375,12 @@ class YOLOSegDataset(Dataset):
 
         img = cv2.resize(img, (self.img_size, self.img_size))
         img_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-        img_chw = np.transpose(img_rgb, (2, 0, 1)).copy()
-        img_tensor = torch.from_numpy(img_chw).to(dtype=torch.float32).div(255.0)
 
         label_path = self._label_path_for_image(image_name)
         boxes, labels, masks = self._parse_yolo_labels(label_path)
+        img_rgb, boxes, labels, masks = self._apply_augmentations(img_rgb, boxes, labels, masks)
+        img_chw = np.transpose(img_rgb, (2, 0, 1)).copy()
+        img_tensor = torch.from_numpy(img_chw).to(dtype=torch.float32).div(255.0)
         
         target = {
             "boxes": boxes,

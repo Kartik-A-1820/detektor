@@ -1,19 +1,19 @@
 from __future__ import annotations
 
+import multiprocessing as mp
 from pathlib import Path
 from typing import Any, Dict
 
 import torch
-import yaml
 from torch.nn.utils import clip_grad_norm_
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 
 from datasets import build_dataset
 from models.chimera import ChimeraODIS
+from utils.auto_train_config import resolve_training_config, write_resolved_config
 from utils.checkpoints import load_checkpoint, save_checkpoint
 from utils.collate import detection_segmentation_collate_fn
-from utils.data_config import apply_dataset_yaml_overrides, print_resolved_dataset_config
 from engine.ema import ModelEMA
 from utils.logging_utils import append_jsonl, append_metrics_row, write_json
 from utils.model_info import get_model_info
@@ -56,8 +56,19 @@ def _has_non_finite_loss_components(loss_dict: Dict[str, torch.Tensor]) -> bool:
     return False
 
 
+def _build_train_loader(dataset: Any, batch_size: int, num_workers: int, device: torch.device) -> DataLoader:
+    return DataLoader(
+        dataset,
+        batch_size=batch_size,
+        shuffle=True,
+        num_workers=num_workers,
+        pin_memory=device.type == "cuda",
+        collate_fn=detection_segmentation_collate_fn,
+    )
+
+
 def train(
-    config_path: str,
+    config_path: str | None,
     data_yaml: str | None = None,
     resume: str | None = None,
     weights: str | None = None,
@@ -68,11 +79,7 @@ def train(
     val_freq: int = 1,
 ) -> Dict[str, Any]:
     """Run the production-hardened training loop with safe resume and logging helpers."""
-    with open(config_path, "r", encoding="utf-8") as handle:
-        cfg = yaml.safe_load(handle)
-    if data_yaml:
-        resolved_dataset = apply_dataset_yaml_overrides(cfg, data_yaml)
-        print_resolved_dataset_config(resolved_dataset)
+    cfg, resolved_runtime = resolve_training_config(config_path, data_yaml)
 
     set_seed(int(cfg.get("seed", 42)), deterministic=bool(cfg.get("deterministic", False)))
     set_vram_cap(cfg["train"].get("vram_cap", 0.8))
@@ -102,14 +109,17 @@ def train(
 
     batch_size = int(cfg["train"]["batch_size"])
     num_workers = int(cfg["train"].get("num_workers", 0))
-    loader = DataLoader(
-        dataset,
-        batch_size=batch_size,
-        shuffle=True,
-        num_workers=num_workers,
-        pin_memory=device.type == "cuda",
-        collate_fn=detection_segmentation_collate_fn,
-    )
+    if num_workers > 0:
+        try:
+            ctx = mp.get_context("spawn")
+            probe_queue = ctx.Queue()
+            probe_queue.close()
+        except PermissionError:
+            print("warning: data loader worker processes are unavailable here; falling back to num_workers=0")
+            num_workers = 0
+            cfg["train"]["num_workers"] = 0
+            resolved_runtime["num_workers"] = 0
+    loader = _build_train_loader(dataset, batch_size=batch_size, num_workers=num_workers, device=device)
 
     optimizer_type = cfg["train"].get("optimizer", "adamw").lower()
     lr = cfg["train"]["lr"]
@@ -155,6 +165,21 @@ def train(
 
     out_dir = Path(cfg.get("logging", {}).get("out_dir", "runs/chimera"))
     out_dir.mkdir(parents=True, exist_ok=True)
+    resolved_config_path = write_resolved_config(cfg, out_dir / "resolved_train_config.yaml")
+    print(f"resolved_device: {resolved_runtime['device']}")
+    print(f"gpu_name: {resolved_runtime['gpu_name']}")
+    print(f"total_vram_gb: {resolved_runtime['total_vram_gb']}")
+    print(f"resolved_train_root: {resolved_runtime['resolved_train_root']}")
+    print(f"resolved_val_root: {resolved_runtime['resolved_val_root']}")
+    print(f"resolved_img_size: {resolved_runtime['img_size']}")
+    print(f"resolved_batch_size: {resolved_runtime['batch_size']}")
+    print(f"resolved_grad_accum: {resolved_runtime['grad_accum']}")
+    print(f"resolved_effective_batch: {resolved_runtime['effective_batch_size']}")
+    print(f"resolved_lr: {resolved_runtime['lr']}")
+    print(f"resolved_amp: {resolved_runtime['amp']}")
+    print(f"resolved_num_workers: {resolved_runtime['num_workers']}")
+    print(f"resolved_out_dir: {resolved_runtime['out_dir']}")
+    print(f"resolved_augment: {resolved_runtime['augment']}")
     metrics_csv_path = out_dir / "train_metrics.csv"
     metrics_jsonl_path = out_dir / "train_metrics.jsonl"
     summary_json_path = out_dir / "run_summary.json"
@@ -185,7 +210,9 @@ def train(
     write_json(
         summary_json_path,
         {
-            "config_path": config_path,
+            "config_path": str(config_path or ""),
+            "resolved_config_path": str(resolved_config_path),
+            "resolved_runtime": resolved_runtime,
             "model_info": model_info,
             "device": str(device),
             "use_ema": use_ema,
@@ -370,7 +397,7 @@ def train(
                 from validate import validate
                 
                 val_metrics = validate(
-                    config_path=config_path,
+                    config_path=str(resolved_config_path),
                     data_yaml=data_yaml if data_yaml else None,
                     weights=str(last_checkpoint_path),
                     batch_size=cfg["train"].get("batch_size", 8),
@@ -439,12 +466,13 @@ def train(
             # Generate training summary
             summary_path = out_dir / "training_summary.json"
             generate_metrics_summary(metrics_df, None, None, summary_path)
+            print(f"resolved_config_path: {resolved_config_path}")
             
-            print(f"\n✓ Training plots saved to: {plots_dir}")
-            print(f"✓ Training summary saved to: {summary_path}")
-            print(f"✓ Metrics CSV: {metrics_csv_path}")
-            print(f"✓ Best checkpoint: {best_checkpoint_path}")
-            print(f"✓ Final weights: {final_weights_path}")
+            print(f"\n[OK] Training plots saved to: {plots_dir}")
+            print(f"[OK] Training summary saved to: {summary_path}")
+            print(f"[OK] Metrics CSV: {metrics_csv_path}")
+            print(f"[OK] Best checkpoint: {best_checkpoint_path}")
+            print(f"[OK] Final weights: {final_weights_path}")
         else:
             print("warning: no metrics data available for report generation")
     except Exception as e:
@@ -461,8 +489,8 @@ if __name__ == "__main__":
     import argparse
 
     parser = argparse.ArgumentParser(description="Train Detektor on a configured dataset")
-    parser.add_argument("--config", type=str, default="configs/chimera_s_512.yaml", help="Path to the base training config YAML")
-    parser.add_argument("--data-yaml", type=str, default="", help="Optional YOLO/Roboflow dataset YAML used to override train/val roots and class metadata")
+    parser.add_argument("--config", type=str, default="", help="Optional base training config YAML. If omitted, Detektor auto-tunes settings from the dataset and available hardware.")
+    parser.add_argument("--data-yaml", type=str, default="", help="YOLO/Roboflow dataset YAML used to resolve train/val roots and class metadata")
     parser.add_argument("--resume", type=str, default="", help="Optional checkpoint path to resume optimizer, scaler, and epoch state")
     parser.add_argument("--weights", type=str, default="", help="Optional model weights or checkpoint to initialize from before training")
     parser.add_argument("--ema", action="store_true", help="Enable exponential moving average tracking for model weights")
@@ -473,7 +501,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     train(
-        config_path=args.config,
+        config_path=args.config or None,
         data_yaml=args.data_yaml or None,
         resume=args.resume or None,
         weights=args.weights or None,

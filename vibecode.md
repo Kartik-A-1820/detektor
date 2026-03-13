@@ -313,3 +313,132 @@ Most important updated conclusion:
   - objectness and classification calibration
   - loss weighting / warmup behavior
   - whether BatchNorm is appropriate for the current effective batch behavior
+
+## Follow-up Status Update: Auto-Tuned Training And Augmentation Upgrade
+
+Date:
+- March 13, 2026
+
+User request:
+- remove the requirement for a user-authored training config
+- make training auto-adjust to the dataset and available GPU VRAM
+- target practical support for machines with roughly `1 GB` to `4 GB` VRAM
+- add Ultralytics-style training augmentations and verify the new workflow by running training
+
+Files changed in this follow-up:
+- [train.py](F:\detektor\train.py)
+  - now supports training from `--data-yaml` alone without requiring `--config`
+  - resolves a hardware-aware runtime config before training starts
+  - writes the final resolved config to the run directory as `resolved_train_config.yaml`
+  - falls back to `num_workers=0` when multiprocessing workers are blocked in this environment
+  - uses ASCII-safe final status output
+- [utils/auto_train_config.py](F:\detektor\utils\auto_train_config.py)
+  - new module for default config generation and GPU/VRAM-aware training auto-tuning
+  - picks `img_size`, `batch_size`, `grad_accum`, `num_workers`, `lr`, output directory, and augmentation strengths
+- [datasets/factory.py](F:\detektor\datasets\factory.py)
+  - enables augmentations only for the training split
+- [datasets/yolo_seg.py](F:\detektor\datasets\yolo_seg.py)
+  - added training-time HSV augmentation
+  - added horizontal/vertical flip augmentation
+  - added translation and scale affine augmentation
+  - keeps validation/inference deterministic by applying augmentations only in training mode
+- [utils/data_config.py](F:\detektor\utils\data_config.py)
+  - now normalizes dataset `names` when provided in dict form
+- [tests/test_auto_train_config.py](F:\detektor\tests\test_auto_train_config.py)
+  - added regression coverage for hardware-aware auto-config resolution
+  - added a deterministic box-flip augmentation test
+
+What the new CLI now supports:
+
+```powershell
+cmd /c ".venv\Scripts\activate.bat && python train.py --data-yaml F:/data/data.yaml"
+```
+
+The user may still pass `--config`, but it is now optional.
+
+### Auto-selected runtime on this machine
+
+Hardware observed:
+- GPU: `NVIDIA GeForce GTX 1650 Ti`
+- VRAM: about `4.0 GB`
+
+Resolved settings used automatically:
+- `device: cuda`
+- `img_size: 512`
+- `batch_size: 4`
+- `grad_accum: 2`
+- effective batch size: `8`
+- `lr: 0.002`
+- `amp: false`
+- `num_workers: 0` after safe fallback because worker processes are blocked in this environment
+- output directory: `runs/data_cuda_4p0gb_512`
+
+Resolved augmentation policy used automatically:
+- HSV color jitter
+- horizontal flip
+- light vertical flip
+- translation
+- scale jitter
+
+### Verification Performed
+
+Unit verification:
+
+```powershell
+cmd /c ".venv\Scripts\activate.bat && python -m unittest tests.test_auto_train_config"
+```
+
+Status:
+- verified
+
+End-to-end training verification with only dataset YAML:
+
+```powershell
+cmd /c ".venv\Scripts\activate.bat && python train.py --data-yaml F:/data/data.yaml --run-val --val-freq 1"
+```
+
+Status:
+- verified
+- training completed successfully
+- in-training validation completed successfully
+- resolved config snapshot written to `runs/data_cuda_4p0gb_512/resolved_train_config.yaml`
+
+Observed epoch losses:
+- Epoch 1 loss: `3.2547`
+- Epoch 2 loss: `5.6062`
+- Epoch 3 loss: `8.1348`
+- Epoch 4 loss: `5.5395`
+- Epoch 5 loss: `3.5449`
+
+Observed validation metrics:
+- Epoch 4:
+  - precision: `0.0350`
+  - recall: `0.1073`
+  - mAP50: `0.0027`
+  - mean IoU: `0.6762`
+- Epoch 5:
+  - precision: `0.5561`
+  - recall: `0.3543`
+  - mAP50: `0.2112`
+  - mean IoU: `0.7226`
+
+Additional smoke verification with a 1-epoch override config:
+
+```powershell
+cmd /c ".venv\Scripts\activate.bat && python train.py --config reports/auto_verify_smoke.yaml --data-yaml F:/data/data.yaml --run-val --val-freq 1"
+```
+
+Status:
+- verified
+- confirms the cleaned-up final reporting path and worker fallback path still complete successfully
+
+Interpretation:
+- training can now be launched from dataset YAML alone
+- runtime settings are now chosen automatically based on detected hardware rather than requiring a hand-edited config
+- the augmentation pipeline is active for training and disabled for validation/inference as intended
+- the model is no longer behaving like a total zero-detection failure in the verified 5-epoch auto-tuned run
+- accuracy is improved versus the earlier near-zero state, but still not yet at a strong final-quality baseline
+
+Most important updated conclusion:
+- the project is now materially easier to use on low-VRAM GPUs because training no longer depends on the user manually tuning core runtime settings
+- the next accuracy-oriented follow-up should focus on stronger augmentation strategies such as mosaic/mixup/copy-paste and on improving target assignment / head calibration
