@@ -27,8 +27,8 @@ All notable changes to Detektor are documented in this file.
 **New Features:**
 - Dataset validation tool (`check_dataset.py`)
 - Comprehensive test suite (unit, integration, regression)
-- Model artifact packaging (`package_model.py`)
-- ONNX Runtime benchmarking (`benchmark.py`)
+- Model artifact packaging (`scripts.package_model`)
+- ONNX Runtime benchmarking (`scripts.benchmark`)
 - Production-grade FastAPI serving layer
 - Gradio UI for local testing
 
@@ -104,3 +104,4 @@ All notable changes to Detektor are documented in this file.
 
 - **v1.0.0** (March 2026): Initial production release
 - **Unreleased**: Ongoing improvements and cleanup
+

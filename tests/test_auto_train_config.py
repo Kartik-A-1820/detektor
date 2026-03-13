@@ -144,6 +144,37 @@ class TestAutoTrainConfig(unittest.TestCase):
         self.assertEqual(retry_cfg["train"]["num_workers"], 0)
         self.assertIn("batch_size 4->2", retry_info["changes"])
 
+    def test_resolve_training_config_preserves_explicit_epoch_override(self) -> None:
+        yaml_path = self._create_dataset_yaml()
+        config_path = self.temp_path / "explicit_epochs.yaml"
+        config_path.write_text(
+            yaml.safe_dump(
+                {
+                    "train": {
+                        "epochs": 5,
+                        "warmup_epochs": 2,
+                    },
+                    "logging": {
+                        "out_dir": "runs/explicit_epochs_test",
+                    },
+                }
+            ),
+            encoding="utf-8",
+        )
+        fake_props = SimpleNamespace(name="Tiny GPU", total_memory=4 * 1024 ** 3, major=7, minor=5)
+
+        with (
+            mock.patch("utils.auto_train_config.torch.cuda.is_available", return_value=True),
+            mock.patch("utils.auto_train_config.torch.cuda.get_device_properties", return_value=fake_props),
+            mock.patch("utils.auto_train_config.torch.cuda.is_bf16_supported", return_value=False),
+        ):
+            cfg, summary = resolve_training_config(str(config_path), str(yaml_path))
+
+        self.assertEqual(cfg["train"]["epochs"], 5)
+        self.assertEqual(cfg["train"]["warmup_epochs"], 1)
+        self.assertEqual(cfg["logging"]["out_dir"], "runs/explicit_epochs_test")
+        self.assertEqual(summary["out_dir"], "runs/explicit_epochs_test")
+
 
 class TestTrainingAugmentations(unittest.TestCase):
     """Unit tests for deterministic augmentation behavior."""

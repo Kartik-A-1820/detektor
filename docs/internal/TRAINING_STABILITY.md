@@ -213,3 +213,5 @@ These stability improvements make Detektor training:
 4. **Production-ready** - minimal manual intervention needed
 
 All improvements are based on proven techniques from Ultralytics YOLO and adapted for the Detektor architecture.
+
+

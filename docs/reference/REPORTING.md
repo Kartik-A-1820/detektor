@@ -29,12 +29,12 @@ The Detektor reporting module provides Ultralytics-style training and validation
 
 ### Basic Command
 ```bash
-python report.py --run-dir runs/chimera
+python -m scripts.report --run-dir runs/chimera
 ```
 
 ### Advanced Options
 ```bash
-python report.py \
+python -m scripts.report \
   --run-dir runs/chimera \
   --plots-dir custom_plots \
   --reports-dir custom_reports \
@@ -86,7 +86,7 @@ The module is designed to work seamlessly with existing training workflows:
 python train.py --config configs/chimera_s_512.yaml --data-yaml F:/data/data.yaml
 
 # 2. Generate report
-python report.py --run-dir runs/chimera
+python -m scripts.report --run-dir runs/chimera
 ```
 
 ## API Usage
@@ -147,12 +147,12 @@ The reporting module:
 ### Example 1: Training Report
 ```bash
 python train.py --config configs/chimera_s_512.yaml --data-yaml F:/data/data.yaml
-python report.py --run-dir runs/chimera
+python -m scripts.report --run-dir runs/chimera
 ```
 
 ### Example 2: Custom Output Directories
 ```bash
-python report.py \
+python -m scripts.report \
   --run-dir runs/chimera \
   --plots-dir analysis/plots \
   --reports-dir analysis/reports
@@ -160,7 +160,7 @@ python report.py \
 
 ### Example 3: Verbose Debugging
 ```bash
-python report.py --run-dir runs/chimera --verbose
+python -m scripts.report --run-dir runs/chimera --verbose
 ```
 
 ## Troubleshooting
@@ -191,3 +191,5 @@ Potential additions (not yet implemented):
 ## License
 
 Same as the main Detektor project (MIT License).
+
+

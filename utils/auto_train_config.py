@@ -328,9 +328,17 @@ def _recommend_epoch_count(dataset_size: int, device_name: str, total_vram_gb: f
 
 def resolve_training_config(config_path: str | None, data_yaml: str | None) -> Tuple[Dict[str, Any], Dict[str, Any]]:
     cfg = copy.deepcopy(DEFAULT_TRAINING_CONFIG)
+    explicit_train_cfg: Dict[str, Any] = {}
+    explicit_augment_cfg: Dict[str, Any] = {}
+    explicit_model_cfg: Dict[str, Any] = {}
+    explicit_logging_cfg: Dict[str, Any] = {}
     if config_path:
         with open(config_path, "r", encoding="utf-8") as handle:
             loaded_cfg = yaml.safe_load(handle) or {}
+        explicit_train_cfg = copy.deepcopy(loaded_cfg.get("train", {}))
+        explicit_augment_cfg = copy.deepcopy(loaded_cfg.get("augment", {}))
+        explicit_model_cfg = copy.deepcopy(loaded_cfg.get("model", {}))
+        explicit_logging_cfg = copy.deepcopy(loaded_cfg.get("logging", {}))
         cfg = _deep_merge(cfg, loaded_cfg)
 
     dataset_info: Dict[str, Any] = {}
@@ -393,8 +401,21 @@ def resolve_training_config(config_path: str | None, data_yaml: str | None) -> T
                 device_name=resolved_device,
             )
 
+    if explicit_train_cfg:
+        cfg["train"] = _deep_merge(cfg.get("train", {}), explicit_train_cfg)
+    if explicit_augment_cfg:
+        cfg["augment"] = _deep_merge(cfg.get("augment", {}), explicit_augment_cfg)
+    if explicit_model_cfg:
+        cfg["model"] = _deep_merge(cfg.get("model", {}), explicit_model_cfg)
+    if explicit_logging_cfg:
+        cfg["logging"] = _deep_merge(cfg.get("logging", {}), explicit_logging_cfg)
+
     cfg["train"]["img_size"] = _next_multiple_of_32(int(cfg["train"]["img_size"]))
     cfg["train"]["num_workers"] = max(int(cfg["train"].get("num_workers", 0)), 0)
+    cfg["train"]["warmup_epochs"] = min(
+        max(1, int(cfg["train"].get("warmup_epochs", 3))),
+        max(int(cfg["train"]["epochs"]) // 3, 1),
+    )
     cfg.setdefault("smart_training", {})
     cfg["smart_training"] = _deep_merge(DEFAULT_TRAINING_CONFIG["smart_training"], cfg["smart_training"])
     if not cfg["smart_training"].get("base_out_dir"):

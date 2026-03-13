@@ -274,10 +274,12 @@ Validation outputs are compatible with the reporting module:
 
 ```bash
 # Run validation
-python validate_v2.py --config configs/chimera_s_512.yaml --weights runs/chimera/chimera_best.pt --data-yaml F:/data/data.yaml
+python validate.py --config configs/chimera_s_512.yaml --weights runs/chimera/chimera_best.pt --data-yaml F:/data/data.yaml
 
 # Generate report (will include validation metrics if val_metrics.json exists)
-python report.py --run-dir runs/validate/chimera_best
+python -m scripts.report --run-dir runs/validate/chimera_best
 ```
 
 The reporting module will automatically detect and visualize validation metrics including confusion matrices, per-class AP charts, and precision-recall curves.
+
+

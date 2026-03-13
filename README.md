@@ -6,8 +6,9 @@ This project is **fully vibe-coded**, meaning it was built through iterative col
 
 ## Quick Links
 
-- **[Quick Start Guide](QUICKSTART.md)** - Complete workflow from training to deployment
-- **[Tools Reference](TOOLS.md)** - Comprehensive CLI documentation
+- **[Documentation Index](docs/README.md)** - Organized guides, references, and project notes
+- **[Quick Start Guide](docs/guides/QUICKSTART.md)** - Complete workflow from training to deployment
+- **[Tools Reference](docs/reference/TOOLS.md)** - Comprehensive CLI documentation
 - **[Changelog](CHANGELOG.md)** - Version history and updates
 
 ## Recent Updates (March 2026)
@@ -149,14 +150,14 @@ python -c "import torch; print('CUDA:', torch.cuda.is_available())"
 
 **Run smoke tests:**
 ```bash
-python run_smoke_checks.py
+python -m scripts.run_smoke_checks
 ```
 
 ## Quick Start
 
-**New to Detektor?** See the **[Quick Start Guide](QUICKSTART.md)** for a complete walkthrough from dataset preparation to production deployment.
+**New to Detektor?** See the **[Quick Start Guide](docs/guides/QUICKSTART.md)** for a complete walkthrough from dataset preparation to production deployment.
 
-**Looking for specific tools?** Check the **[Tools Reference](TOOLS.md)** for comprehensive CLI documentation.
+**Looking for specific tools?** Check the **[Tools Reference](docs/reference/TOOLS.md)** for comprehensive CLI documentation.
 
 ### Golden Path: 5-Minute Start
 
@@ -380,7 +381,7 @@ If training produces NaN/Inf losses:
    - Increase warmup: `warmup_epochs: 5`
    - Reduce batch size: `batch_size: 4`
 
-See `OPTIMIZER_LOSS_BASELINE.md` for detailed stability documentation.
+See `docs/internal/OPTIMIZER_LOSS_BASELINE.md` for detailed stability documentation.
 
 ## Inference
 
@@ -701,7 +702,7 @@ The compose file includes both a CPU service and an optional GPU service (requir
 | `DETEKTOR_CONF_THRESH` / `DETEKTOR_IOU_THRESH` / `DETEKTOR_MAX_DET` | Runtime thresholds |
 | `DETEKTOR_INCLUDE_MASKS` | Default mask behavior |
 
-Use `docker logs detektor-api` to inspect structured logs. For production, run behind a reverse proxy and mount packaged artifacts created via `package_model.py`.
+Use `docker logs detektor-api` to inspect structured logs. For production, run behind a reverse proxy and mount packaged artifacts created via `scripts.package_model`.
 
 ## Dataset Format
 
@@ -792,22 +793,22 @@ Run comprehensive validation with detailed metrics and artifacts:
 
 **Basic validation:**
 ```bash
-python validate_v2.py --config configs/chimera_s_512.yaml --weights runs/chimera/chimera_best.pt --data-yaml F:/data/data.yaml
+python validate.py --config configs/chimera_s_512.yaml --weights runs/chimera/chimera_best.pt --data-yaml F:/data/data.yaml
 ```
 
 **With image saving:**
 ```bash
-python validate_v2.py --config configs/chimera_s_512.yaml --weights runs/chimera/chimera_best.pt --data-yaml F:/data/data.yaml --save-images --max-images 50
+python validate.py --config configs/chimera_s_512.yaml --weights runs/chimera/chimera_best.pt --data-yaml F:/data/data.yaml --save-images --max-images 50
 ```
 
 **With AP50-95 (COCO-style):**
 ```bash
-python validate_v2.py --config configs/chimera_s_512.yaml --weights runs/chimera/chimera_best.pt --data-yaml F:/data/data.yaml --compute-ap50-95
+python validate.py --config configs/chimera_s_512.yaml --weights runs/chimera/chimera_best.pt --data-yaml F:/data/data.yaml --compute-ap50-95
 ```
 
 **Custom output directory:**
 ```bash
-python validate_v2.py --config configs/chimera_s_512.yaml --weights runs/chimera/chimera_best.pt --data-yaml F:/data/data.yaml --output-dir my_validation
+python validate.py --config configs/chimera_s_512.yaml --weights runs/chimera/chimera_best.pt --data-yaml F:/data/data.yaml --output-dir my_validation
 ```
 
 ### Validation Metrics
@@ -901,13 +902,13 @@ Validation outputs integrate seamlessly with the reporting module:
 
 ```bash
 # Run validation
-python validate_v2.py --config configs/chimera_s_512.yaml --weights runs/chimera/chimera_best.pt --data-yaml F:/data/data.yaml
+python validate.py --config configs/chimera_s_512.yaml --weights runs/chimera/chimera_best.pt --data-yaml F:/data/data.yaml
 
 # Generate visual report
-python report.py --run-dir runs/validate/chimera_best
+python -m scripts.report --run-dir runs/validate/chimera_best
 ```
 
-See `VALIDATION_OUTPUT_SCHEMA.md` for detailed output format documentation.
+See `docs/reference/VALIDATION_OUTPUT_SCHEMA.md` for detailed output format documentation.
 
 ## Reporting
 
@@ -935,17 +936,17 @@ Detektor includes a comprehensive reporting module that **automatically generate
 If you need to regenerate reports manually:
 
 ```bash
-python report.py --run-dir runs/chimera
+python -m scripts.report --run-dir runs/chimera
 ```
 
 **Specify custom output directory:**
 ```bash
-python report.py --run-dir runs/chimera --output-dir my_reports
+python -m scripts.report --run-dir runs/chimera --output-dir my_reports
 ```
 
 **Verbose output:**
 ```bash
-python report.py --run-dir runs/chimera --verbose
+python -m scripts.report --run-dir runs/chimera --verbose
 ```
 
 ### Generated Artifacts
@@ -1017,7 +1018,7 @@ Reports are automatically compatible with the training output format. After trai
 python train.py --config configs/chimera_s_512.yaml --data-yaml F:/data/data.yaml
 
 # Generate comprehensive report
-python report.py --run-dir runs/chimera
+python -m scripts.report --run-dir runs/chimera
 ```
 
 All plots and reports will be saved in the run directory for easy access and version control.
@@ -1033,7 +1034,7 @@ python export.py --config configs/chimera_s_512.yaml --weights runs/chimera/chim
 Compatibility alias:
 
 ```bash
-python export_onnx.py --config configs/chimera_s_512.yaml --weights runs/chimera/chimera_best.pt
+python -m scripts.export_onnx --config configs/chimera_s_512.yaml --weights runs/chimera/chimera_best.pt
 ```
 
 ## Running Tests
@@ -1104,15 +1105,16 @@ python -m unittest tests.test_ciou.TestCIoU.test_ciou_loss_identical_boxes
 ## Documentation
 
 ### Getting Started
-- **[QUICKSTART.md](QUICKSTART.md)**: Complete workflow from dataset to deployment
-- **[TOOLS.md](TOOLS.md)**: Comprehensive CLI tool reference
+- **[docs/README.md](docs/README.md)**: Documentation index
+- **[docs/guides/QUICKSTART.md](docs/guides/QUICKSTART.md)**: Complete workflow from dataset to deployment
+- **[docs/reference/TOOLS.md](docs/reference/TOOLS.md)**: Comprehensive CLI tool reference
 - **[CHANGELOG.md](CHANGELOG.md)**: Version history and updates
 
 ### Technical Documentation
-- **[OPTIMIZER_LOSS_BASELINE.md](OPTIMIZER_LOSS_BASELINE.md)**: Optimizer and loss stability guide
-- **[REPORTING.md](REPORTING.md)**: Reporting module documentation
-- **[VALIDATION_OUTPUT_SCHEMA.md](VALIDATION_OUTPUT_SCHEMA.md)**: Validation metrics format
-- **[PROJECT_STATUS.md](PROJECT_STATUS.md)**: Project roadmap and status
+- **[docs/internal/OPTIMIZER_LOSS_BASELINE.md](docs/internal/OPTIMIZER_LOSS_BASELINE.md)**: Optimizer and loss stability guide
+- **[docs/reference/REPORTING.md](docs/reference/REPORTING.md)**: Reporting module documentation
+- **[docs/reference/VALIDATION_OUTPUT_SCHEMA.md](docs/reference/VALIDATION_OUTPUT_SCHEMA.md)**: Validation metrics format
+- **[docs/status/PROJECT_STATUS.md](docs/status/PROJECT_STATUS.md)**: Project roadmap and status
 - **[CONTRIBUTING.md](CONTRIBUTING.md)**: Contribution guidelines
 
 ### Configuration Examples
@@ -1127,7 +1129,7 @@ python -m unittest tests.test_ciou.TestCIoU.test_ciou_loss_identical_boxes
 ```bash
 python train.py --config configs/chimera_s_512.yaml --data-yaml data.yaml --debug-loss
 ```
-Check which component fails and see `OPTIMIZER_LOSS_BASELINE.md`.
+Check which component fails and see `docs/internal/OPTIMIZER_LOSS_BASELINE.md`.
 
 **Out of memory:**
 - Reduce `batch_size` in config
@@ -1224,3 +1226,5 @@ If you use Detektor in your research or project, please cite:
   url={https://github.com/Kartik-A-1820/detektor}
 }
 ```
+
+

@@ -27,11 +27,11 @@ Successfully implemented a comprehensive Ultralytics-style reporting module for 
 - ✅ Matplotlib-only (no heavy dependencies)
 - ✅ Configurable plot parameters
 
-### 2. CLI Entrypoint (`report.py`)
+### 2. CLI Entrypoint (`scripts.report`)
 
 **Command-line Interface:**
 ```bash
-python report.py --run-dir runs/chimera [--plots-dir DIR] [--reports-dir DIR] [--verbose]
+python -m scripts.report --run-dir runs/chimera [--plots-dir DIR] [--reports-dir DIR] [--verbose]
 ```
 
 **Features:**
@@ -82,7 +82,7 @@ python -m unittest tests.test_reporting
 - Examples of integration with training workflow
 
 **New Documentation Files:**
-- `REPORTING.md` - Detailed module documentation
+- `docs/reference/REPORTING.md` - Detailed module documentation
 - `examples/sample_val_metrics.json` - Example validation metrics format
 
 ## Key Design Decisions
@@ -119,16 +119,16 @@ python -m unittest tests.test_reporting
 python train.py --config configs/chimera_s_512.yaml --data-yaml F:/data/data.yaml
 
 # Generate report
-python report.py --run-dir runs/chimera
+python -m scripts.report --run-dir runs/chimera
 ```
 
 ### Advanced Usage
 ```bash
 # Custom output directories
-python report.py --run-dir runs/chimera --plots-dir analysis/plots --reports-dir analysis/reports
+python -m scripts.report --run-dir runs/chimera --plots-dir analysis/plots --reports-dir analysis/reports
 
 # Verbose debugging
-python report.py --run-dir runs/chimera --verbose
+python -m scripts.report --run-dir runs/chimera --verbose
 ```
 
 ### Programmatic Usage
@@ -195,16 +195,19 @@ Potential additions for future work:
 ✅ **Reads existing artifacts**: train_metrics.csv/jsonl, epoch_summaries.jsonl, val_metrics.json  
 ✅ **Generates plots**: Loss curves, LR, validation metrics, confusion matrix, per-class AP  
 ✅ **Machine-readable summaries**: metrics_summary.json, per_class_metrics.csv  
-✅ **CLI entrypoint**: `python report.py --run-dir runs/chimera`  
+✅ **CLI entrypoint**: `python -m scripts.report --run-dir runs/chimera`  
 ✅ **No breaking changes**: All existing APIs unchanged  
 ✅ **Matplotlib only**: No heavy dependencies  
 ✅ **Type hints**: Throughout codebase  
 ✅ **Error handling**: Graceful degradation  
 ✅ **Tests**: Comprehensive test suite  
-✅ **Documentation**: README + REPORTING.md  
+✅ **Documentation**: README + docs/reference/REPORTING.md  
 
 ## Conclusion
 
 The reporting module is production-ready and fully integrated with Detektor's existing training pipeline. It provides comprehensive visualization and analysis capabilities while maintaining the project's lightweight, local-first philosophy.
 
 **Status**: ✅ Complete and ready for use
+
+
+

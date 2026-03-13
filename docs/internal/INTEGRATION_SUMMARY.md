@@ -135,9 +135,9 @@ python train.py --config configs/chimera_s_512.yaml --data-yaml F:/data/data.yam
 ## 📖 Documentation
 
 - `README.md` - Updated with all new features
-- `ROBUSTNESS.md` - Detailed robustness documentation
-- `VALIDATION_OUTPUT_SCHEMA.md` - Validation output format
-- `REPORTING.md` - Reporting module documentation
+- `docs/internal/ROBUSTNESS.md` - Detailed robustness documentation
+- `docs/reference/VALIDATION_OUTPUT_SCHEMA.md` - Validation output format
+- `docs/reference/REPORTING.md` - Reporting module documentation
 
 ## ✨ Summary
 
@@ -149,3 +149,6 @@ The Detektor training pipeline is now production-grade with:
 - No separate commands needed for common workflows
 
 **Everything works automatically during training!**
+
+
+

@@ -125,3 +125,57 @@ Artifacts written:
   - target assignment quality
   - head calibration / loss weighting
   - longer verified runs after the smart orchestrator changes
+
+## Latest Update: Validation-Driven Best Checkpoints
+
+Date:
+- March 13, 2026
+
+User request:
+- fix validation/checkpoint mismatch across architecture profiles
+- save self-contained `.pt` files with weights plus model architecture
+- verify longer training and improve auto-training defaults
+- push to `beta`
+
+Files changed:
+- [train.py](F:\detektor\train.py)
+  - `chimera_best.pt` now tracks validation `mAP50` when `--run-val` is enabled
+  - final weights now save as a self-contained checkpoint payload, not raw `state_dict`
+- [validate.py](F:\detektor\validate.py)
+  - validation now rebuilds the model from checkpoint metadata instead of assuming the YAML architecture still matches
+- [utils/checkpoints.py](F:\detektor\utils\checkpoints.py)
+  - added checkpoint payload builder with `model_state`, `model_config`, `config`, and training state
+- [models/factory.py](F:\detektor\models\factory.py)
+  - model reconstruction now prefers embedded checkpoint architecture metadata
+- [models/chimera.py](F:\detektor\models\chimera.py)
+  - detection-mode predictions now keep a stable `masks` key for validation compatibility
+- [utils/auto_train_config.py](F:\detektor\utils\auto_train_config.py)
+  - auto-config now chooses longer epoch counts by dataset size and device class
+
+Verification:
+- targeted tests passed:
+  - `python -m unittest tests.test_auto_train_config tests.test_smart_training tests.test_checkpoints tests.test_predict`
+- real 5-epoch verification run:
+  - config: `reports/auto_verify_5epoch.yaml`
+  - output: `runs/auto_verify_5epoch/`
+- epoch-by-epoch validation trend from `runs/auto_verify_5epoch/val_metrics.jsonl`:
+  - epoch 1: `P=0.0000` `R=0.0000` `mAP50=0.0000`
+  - epoch 2: `P=0.0000` `R=0.0000` `mAP50=0.0000`
+  - epoch 3: `P=0.0000` `R=0.0000` `mAP50=0.0000`
+  - epoch 4: `P=0.0396` `R=0.0392` `mAP50=0.0020`
+  - epoch 5: `P=0.5970` `R=0.1337` `mAP50=0.0848`
+- standalone validation after the run:
+  - `chimera_best.pt`: still `0.0000` metrics because it was created before the selection fix
+  - `chimera_final_weights.pt`: `P=0.7636` `R=0.1678` `mAP50=0.1260`
+
+Git:
+- pushed to `origin/beta`
+- commit: `077d3f1` `Track best checkpoints by val mAP50 and lengthen auto training`
+
+Current state:
+- training is verified to run and save self-contained architecture-aware `.pt` bundles
+- validation is now loading the correct architecture from checkpoints
+- longer training materially improves detection metrics on the current dataset
+- next accuracy work should focus on recall and early-epoch instability, not checkpoint plumbing
+
+

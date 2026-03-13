@@ -219,13 +219,13 @@ open http://localhost:8000/docs
 
 ## Reporting
 
-### `report.py`
+### `scripts.report`
 
 Generate comprehensive training analysis and visualizations.
 
 **Basic Usage:**
 ```bash
-python report.py --run-dir runs/chimera
+python -m scripts.report --run-dir runs/chimera
 ```
 
 **Arguments:**
@@ -246,23 +246,23 @@ runs/chimera/
 **Examples:**
 ```bash
 # Generate report
-python report.py --run-dir runs/chimera
+python -m scripts.report --run-dir runs/chimera
 
 # Custom output location
-python report.py --run-dir runs/chimera --output-dir reports/chimera_analysis
+python -m scripts.report --run-dir runs/chimera --output-dir reports/chimera_analysis
 ```
 
 ---
 
 ## Model Packaging
 
-### `package_model.py`
+### `scripts.package_model`
 
 Package model artifacts for reproducibility and deployment.
 
 **Basic Usage:**
 ```bash
-python package_model.py \
+python -m scripts.package_model \
   --weights runs/chimera/chimera_best.pt \
   --config configs/chimera_s_512.yaml \
   --data-yaml F:/data/data.yaml
@@ -292,20 +292,20 @@ artifacts/chimera_v1/
 **Examples:**
 ```bash
 # Basic packaging
-python package_model.py \
+python -m scripts.package_model \
   --weights runs/chimera/chimera_best.pt \
   --config configs/chimera_s_512.yaml \
   --data-yaml F:/data/data.yaml
 
 # Include ONNX export
-python package_model.py \
+python -m scripts.package_model \
   --weights runs/chimera/chimera_best.pt \
   --config configs/chimera_s_512.yaml \
   --data-yaml F:/data/data.yaml \
   --include-onnx exports/chimera.onnx
 
 # Custom output location
-python package_model.py \
+python -m scripts.package_model \
   --weights runs/chimera/chimera_best.pt \
   --config configs/chimera_s_512.yaml \
   --data-yaml F:/data/data.yaml \
@@ -316,13 +316,13 @@ python package_model.py \
 
 ## Benchmarking
 
-### `benchmark.py`
+### `scripts.benchmark`
 
 Benchmark PyTorch and ONNX Runtime inference performance.
 
 **Basic Usage:**
 ```bash
-python benchmark.py \
+python -m scripts.benchmark \
   --weights runs/chimera/chimera_best.pt \
   --onnx exports/chimera.onnx \
   --source F:/data/test/images
@@ -353,18 +353,18 @@ runs/benchmarks/
 **Examples:**
 ```bash
 # Benchmark PyTorch and ONNX
-python benchmark.py \
+python -m scripts.benchmark \
   --weights runs/chimera/chimera_best.pt \
   --onnx exports/chimera.onnx \
   --source F:/data/test/images
 
 # PyTorch only
-python benchmark.py \
+python -m scripts.benchmark \
   --weights runs/chimera/chimera_best.pt \
   --source F:/data/test/images
 
 # Custom sample count
-python benchmark.py \
+python -m scripts.benchmark \
   --weights runs/chimera/chimera_best.pt \
   --source F:/data/test/images \
   --num-samples 50
@@ -565,10 +565,10 @@ python train.py --config configs/chimera_s_512.yaml --data-yaml F:/data/data.yam
 python validate.py --weights runs/chimera/chimera_best.pt --data-yaml F:/data/data.yaml
 
 # 4. Generate report
-python report.py --run-dir runs/chimera
+python -m scripts.report --run-dir runs/chimera
 
 # 5. Package model
-python package_model.py \
+python -m scripts.package_model \
   --weights runs/chimera/chimera_best.pt \
   --config configs/chimera_s_512.yaml \
   --data-yaml F:/data/data.yaml
@@ -584,7 +584,7 @@ python export.py \
   --output exports/chimera.onnx
 
 # 2. Benchmark performance
-python benchmark.py \
+python -m scripts.benchmark \
   --weights runs/chimera/chimera_best.pt \
   --onnx exports/chimera.onnx \
   --source F:/data/test/images
@@ -595,4 +595,7 @@ docker-compose up detektor-gpu
 
 ---
 
-For more details, see the main [README.md](README.md) and [QUICKSTART.md](QUICKSTART.md).
+For more details, see the main [README](../../README.md) and [Quick Start Guide](../guides/QUICKSTART.md).
+
+
+

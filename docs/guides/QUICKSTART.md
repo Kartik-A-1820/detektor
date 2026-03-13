@@ -155,7 +155,7 @@ runs/inference/
 Create comprehensive training analysis:
 
 ```bash
-python report.py --run-dir runs/chimera
+python -m scripts.report --run-dir runs/chimera
 ```
 
 **Generates:**
@@ -174,7 +174,7 @@ runs/chimera/
 Create a reproducible model artifact:
 
 ```bash
-python package_model.py \
+python -m scripts.package_model \
   --weights runs/chimera/chimera_best.pt \
   --config configs/chimera_s_512.yaml \
   --data-yaml F:/data/data.yaml \
@@ -270,7 +270,7 @@ python export.py \
 ### Benchmark Performance
 
 ```bash
-python benchmark.py \
+python -m scripts.benchmark \
   --weights runs/chimera/chimera_best.pt \
   --onnx exports/chimera.onnx \
   --source F:/data/test/images
@@ -324,9 +324,9 @@ Fix issues reported by `check_dataset.py`:
 ## Next Steps
 
 - Read the full [README.md](README.md) for detailed documentation
-- Check [OPTIMIZER_LOSS_BASELINE.md](OPTIMIZER_LOSS_BASELINE.md) for training tips
-- See [REPORTING.md](REPORTING.md) for metrics documentation
-- Review [VALIDATION_OUTPUT_SCHEMA.md](VALIDATION_OUTPUT_SCHEMA.md) for output formats
+- Check [Optimizer and Loss Baseline](../internal/OPTIMIZER_LOSS_BASELINE.md) for training tips
+- See [Reporting Reference](../reference/REPORTING.md) for metrics documentation
+- Review [Validation Output Schema](../reference/VALIDATION_OUTPUT_SCHEMA.md) for output formats
 
 ## Support
 
@@ -334,3 +334,6 @@ For issues and questions:
 - Check existing documentation
 - Review test cases for usage examples
 - Examine example configs in `configs/`
+
+
+
