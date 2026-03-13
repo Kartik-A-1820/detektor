@@ -1,4 +1,4 @@
-# VibeCode Handoff
+﻿# VibeCode Handoff
 
 ## Operating Constraints
 
@@ -7,6 +7,12 @@
 - Push only to `beta`.
 - `F:/data/data.yaml` is the active dataset.
 - Do not commit generated `artifacts/`, `reports/`, or ad hoc `runs/` outputs unless explicitly asked.
+
+- Common activation commands:
+  - cmd /c ".venv\Scripts\activate.bat && python train.py --data-yaml F:/data/data.yaml"
+  - .\.venv\Scripts\python.exe train.py --data-yaml F:/data/data.yaml
+- Git push command, when explicitly requested:
+  - git push origin beta
 
 ## Verified Baseline Before This Update
 
@@ -322,3 +328,84 @@ Current state:
 - validation now has one canonical entrypoint: `validate.py`
 - explicit training config overrides are now honored correctly
 - the main remaining issue is model quality imbalance across classes, not project structure
+
+## Latest Update: Auto Overrides, Resource-Aware Batch Probing, And Architecture Matrix
+
+Date:
+- March 13, 2026
+
+User request:
+- keep recommended config and architecture selection automatic
+- allow CLI overrides for model and training/augmentation settings
+- maximize batch size from current free resources
+- add a feature to list architecture compatibility on CPU and GPU
+- run all model profiles for at least `3` epochs on this machine
+
+Files changed:
+- [train.py](F:\detektor\train.py)
+  - added direct CLI overrides for device, model profile, training args, and augmentation args
+  - training now resolves overrides after auto-tune
+  - runtime logs now include free VRAM, free RAM, CPU count, and effective VRAM cap
+  - CUDA batch probing now pushes to the largest safe multiple of `4`
+- [utils/auto_train_config.py](F:\detektor\utils\auto_train_config.py)
+  - auto-config now uses current free VRAM, free RAM, and CPU count
+  - config overrides now apply cleanly after auto-tune
+  - fixed model-profile override so `--model <profile>` rebuilds the full selected profile
+- [utils/vram.py](F:\detektor\utils\vram.py)
+  - `vram_cap: 0.95` now means `95%` of currently free VRAM, not total VRAM
+- [utils/architecture_compatibility.py](F:\detektor\utils\architecture_compatibility.py)
+  - new compatibility probe for all architecture profiles on CPU and CUDA
+- [model_matrix.py](F:\detektor\model_matrix.py)
+  - new user-facing command to print architecture compatibility and optionally run a real training sweep
+- [tests/test_auto_train_config.py](F:\detektor\tests\test_auto_train_config.py)
+  - added coverage for free-VRAM/free-RAM tuning and explicit override behavior
+- [tests/test_architecture_compatibility.py](F:\detektor\tests\test_architecture_compatibility.py)
+  - added coverage for compatibility matrix collection
+- [README.md](F:\detektor\README.md)
+  - training docs now describe auto-by-default behavior, architecture names, CLI model override, full training args, and augmentation args
+
+New commands:
+
+```powershell
+.\.venv\Scripts\python.exe train.py --data-yaml F:/data/data.yaml
+.\.venv\Scripts\python.exe train.py --data-yaml F:/data/data.yaml --model nova --no-auto-tune --batch-size 8
+.\.venv\Scripts\python.exe model_matrix.py --data-yaml F:/data/data.yaml
+.\.venv\Scripts\python.exe model_matrix.py --data-yaml F:/data/data.yaml --run-train-sweep --epochs 3
+```
+
+Verification:
+- unit tests passed:
+  - `.\.venv\Scripts\python.exe -m unittest tests.test_auto_train_config tests.test_architecture_compatibility`
+- CLI help verified:
+  - `.\.venv\Scripts\python.exe train.py --help`
+  - `.\.venv\Scripts\python.exe model_matrix.py --help`
+- override smoke run verified:
+  - `.\.venv\Scripts\python.exe train.py --data-yaml F:/data/data.yaml --epochs 1 --batch-size 8 --no-auto-tune --model nova --no-augment --out-dir runs/cli_override_smoke_2`
+- compatibility smoke run verified:
+  - `.\.venv\Scripts\python.exe model_matrix.py --data-yaml F:/data/data.yaml --profiles firefly --max-batch-probe 8 --cpu-max-batch-probe 4 --output-dir runs/architecture_matrix_smoke`
+
+Live machine results:
+- compatibility summary:
+  - `runs/architecture_matrix_live/compatibility_matrix.json`
+- `3`-epoch sweep summary:
+  - `runs/architecture_matrix_live/train_sweep_summary.json`
+- measured `3`-epoch sweep times and resolved CUDA batch sizes:
+  - `firefly`: `20` batch, `1.87 min`
+  - `comet`: `24` batch, `1.31 min`
+  - `nova`: `16` batch, `1.65 min`
+  - `pulsar`: `12` batch, `1.57 min`
+  - `quasar`: `12` batch, `1.33 min`
+  - `supernova`: `8` batch, `1.97 min`
+- approximate wall time:
+  - training sweep only: `9.70 min`
+  - compatibility probe only: `13.64 min`
+  - full end-to-end run here: about `23.6 min`
+
+Current state:
+- training is now auto-configured by default and overrideable from CLI without editing YAML
+- recommended profile selection is automatic, but all profile names are exposed to users through `--model`
+- resource tuning is based on current free VRAM/RAM, not static hardware buckets
+- the repo now includes a machine-specific architecture compatibility and benchmark feature
+- the next major area of work is still actual model-accuracy improvement, not training automation
+
+

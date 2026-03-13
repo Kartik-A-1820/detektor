@@ -98,6 +98,106 @@ class TestAutoTrainConfig(unittest.TestCase):
         self.assertEqual(cfg["model"]["profile"], "firefly")
         self.assertEqual(summary["model_display_name"], "Firefly")
 
+    def test_resolve_training_config_prefers_larger_batch_on_four_gb_gpu(self) -> None:
+        yaml_path = self._create_dataset_yaml()
+        fake_props = SimpleNamespace(name="GTX 1650 Ti", total_memory=4 * 1024 ** 3, major=7, minor=5)
+
+        with (
+            mock.patch("utils.auto_train_config.torch.cuda.is_available", return_value=True),
+            mock.patch("utils.auto_train_config.torch.cuda.get_device_properties", return_value=fake_props),
+            mock.patch("utils.auto_train_config.torch.cuda.is_bf16_supported", return_value=False),
+        ):
+            cfg, summary = resolve_training_config(None, str(yaml_path))
+
+        self.assertEqual(cfg["device"], "cuda")
+        self.assertEqual(cfg["train"]["img_size"], 512)
+        self.assertEqual(cfg["train"]["batch_size"], 16)
+        self.assertEqual(cfg["train"]["grad_accum"], 1)
+        self.assertEqual(cfg["train"]["batch_size_multiple"], 4)
+        self.assertEqual(cfg["train"]["max_batch_probe"], 64)
+        self.assertAlmostEqual(cfg["train"]["vram_cap"], 0.95)
+        self.assertEqual(summary["effective_batch_size"], 16)
+
+    def test_resolve_training_config_uses_free_vram_not_total_vram(self) -> None:
+        yaml_path = self._create_dataset_yaml()
+        fake_props = SimpleNamespace(name="Busy GTX 1650 Ti", total_memory=4 * 1024 ** 3, major=7, minor=5)
+
+        with (
+            mock.patch("utils.auto_train_config.torch.cuda.is_available", return_value=True),
+            mock.patch("utils.auto_train_config.torch.cuda.get_device_properties", return_value=fake_props),
+            mock.patch("utils.auto_train_config.torch.cuda.mem_get_info", return_value=(2300 * 1024 ** 2, 4 * 1024 ** 3)),
+            mock.patch("utils.auto_train_config.torch.cuda.is_bf16_supported", return_value=False),
+            mock.patch("utils.auto_train_config.detect_system_memory", return_value=(16 * 1024 ** 3, 32 * 1024 ** 3)),
+        ):
+            cfg, summary = resolve_training_config(None, str(yaml_path))
+
+        self.assertEqual(cfg["device"], "cuda")
+        self.assertEqual(cfg["train"]["img_size"], 416)
+        self.assertEqual(cfg["train"]["batch_size"], 2)
+        self.assertEqual(cfg["model"]["profile"], "comet")
+        self.assertAlmostEqual(summary["free_vram_gb"], round(2300 / 1024, 2), places=2)
+
+    def test_resolve_training_config_cpu_mode_uses_free_ram_and_cpu_count(self) -> None:
+        yaml_path = self._create_dataset_yaml()
+
+        with (
+            mock.patch("utils.auto_train_config.torch.cuda.is_available", return_value=False),
+            mock.patch("utils.auto_train_config.detect_system_memory", return_value=(12 * 1024 ** 3, 32 * 1024 ** 3)),
+            mock.patch("utils.auto_train_config.os.cpu_count", return_value=12),
+        ):
+            cfg, summary = resolve_training_config(None, str(yaml_path))
+
+        self.assertEqual(cfg["device"], "cpu")
+        self.assertEqual(cfg["train"]["img_size"], 512)
+        self.assertEqual(cfg["train"]["batch_size"], 8)
+        self.assertEqual(cfg["train"]["grad_accum"], 1)
+        self.assertEqual(cfg["train"]["num_workers"], 6)
+        self.assertEqual(summary["cpu_count"], 12)
+        self.assertAlmostEqual(summary["free_ram_gb"], 12.0)
+
+    def test_resolve_training_config_applies_explicit_overrides_after_auto_tune(self) -> None:
+        yaml_path = self._create_dataset_yaml()
+        fake_props = SimpleNamespace(name="GTX 1650 Ti", total_memory=4 * 1024 ** 3, major=7, minor=5)
+        overrides = {
+            "train": {
+                "epochs": 7,
+                "batch_size": 12,
+                "auto_tune": False,
+                "amp": True,
+            },
+            "augment": {
+                "mosaic": 0.25,
+                "enabled": False,
+            },
+            "model": {
+                "profile": "nova",
+            },
+            "logging": {
+                "out_dir": "runs/cli_override_test",
+            },
+        }
+
+        with (
+            mock.patch("utils.auto_train_config.torch.cuda.is_available", return_value=True),
+            mock.patch("utils.auto_train_config.torch.cuda.get_device_properties", return_value=fake_props),
+            mock.patch("utils.auto_train_config.torch.cuda.is_bf16_supported", return_value=False),
+        ):
+            cfg, summary = resolve_training_config(None, str(yaml_path), overrides=overrides)
+
+        self.assertEqual(cfg["train"]["epochs"], 7)
+        self.assertEqual(cfg["train"]["batch_size"], 12)
+        self.assertFalse(cfg["train"]["auto_tune"])
+        self.assertTrue(cfg["train"]["amp"])
+        self.assertFalse(cfg["augment"]["enabled"])
+        self.assertEqual(cfg["augment"]["mosaic"], 0.25)
+        self.assertEqual(cfg["model"]["profile"], "nova")
+        self.assertEqual(cfg["model"]["display_name"], "Nova")
+        self.assertEqual(cfg["model"]["stem_channels"], 24)
+        self.assertEqual(cfg["logging"]["out_dir"], "runs/cli_override_test")
+        self.assertEqual(summary["model_profile"], "nova")
+        self.assertEqual(summary["model_display_name"], "Nova")
+        self.assertEqual(summary["out_dir"], "runs/cli_override_test")
+
     def test_plan_smart_retry_disables_amp_after_amp_instability(self) -> None:
         yaml_path = self._create_dataset_yaml()
         fake_props = SimpleNamespace(name="Tiny GPU", total_memory=2 * 1024 ** 3, major=7, minor=5)

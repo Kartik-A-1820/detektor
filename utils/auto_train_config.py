@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 import copy
+import ctypes
 import math
 import os
 from pathlib import Path
-from typing import Any, Dict, Tuple
+from typing import Any, Dict, Mapping, Tuple
 
 import torch
 import yaml
@@ -41,10 +42,13 @@ DEFAULT_TRAINING_CONFIG: Dict[str, Any] = {
         "momentum": 0.937,
         "amp": False,
         "grad_accum": 1,
-        "vram_cap": 0.80,
+        "vram_cap": 0.95,
         "conf_thresh": 0.25,
         "iou_thresh": 0.6,
         "auto_tune": True,
+        "maximize_batch_size": True,
+        "batch_size_multiple": 4,
+        "max_batch_probe": 64,
     },
     "augment": {
         "enabled": True,
@@ -132,12 +136,21 @@ def _dataset_size_band(dataset_size: int) -> str:
 
 
 def detect_hardware_profile() -> Dict[str, Any]:
+    cpu_count = os.cpu_count() or 2
+    free_ram_bytes, total_ram_bytes = detect_system_memory()
     if not torch.cuda.is_available():
         return {
             "device": "cpu",
             "gpu_name": "cpu",
             "total_vram_gb": 0.0,
             "total_vram_bytes": 0,
+            "free_vram_gb": 0.0,
+            "free_vram_bytes": 0,
+            "free_ram_gb": round(free_ram_bytes / float(1024 ** 3), 2),
+            "free_ram_bytes": int(free_ram_bytes),
+            "total_ram_gb": round(total_ram_bytes / float(1024 ** 3), 2),
+            "total_ram_bytes": int(total_ram_bytes),
+            "cpu_count": int(cpu_count),
             "supports_amp": False,
             "supports_bf16": False,
         }
@@ -145,38 +158,105 @@ def detect_hardware_profile() -> Dict[str, Any]:
     props = torch.cuda.get_device_properties(0)
     major, minor = props.major, props.minor
     supports_bf16 = bool(getattr(torch.cuda, "is_bf16_supported", lambda: False)())
+    free_vram_bytes = 0
+    try:
+        free_vram_bytes, _ = torch.cuda.mem_get_info()
+    except Exception:
+        free_vram_bytes = int(props.total_memory)
     return {
         "device": "cuda",
         "gpu_name": props.name,
         "total_vram_gb": props.total_memory / float(1024 ** 3),
         "total_vram_bytes": int(props.total_memory),
+        "free_vram_gb": free_vram_bytes / float(1024 ** 3),
+        "free_vram_bytes": int(free_vram_bytes),
+        "free_ram_gb": round(free_ram_bytes / float(1024 ** 3), 2),
+        "free_ram_bytes": int(free_ram_bytes),
+        "total_ram_gb": round(total_ram_bytes / float(1024 ** 3), 2),
+        "total_ram_bytes": int(total_ram_bytes),
+        "cpu_count": int(cpu_count),
         "compute_capability": f"{major}.{minor}",
         "supports_amp": major >= 7,
         "supports_bf16": supports_bf16,
     }
 
 
-def _recommend_train_settings(total_vram_gb: float, cpu_count: int) -> Dict[str, Any]:
-    total_vram_mb = int(total_vram_gb * 1024)
-    if total_vram_mb < 512:
-        return {
-            "img_size": 320,
-            "batch_size": 2,
-            "grad_accum": 8,
-            "num_workers": min(max(cpu_count // 2, 0), 2),
-            "amp": False,
-            "device": "cpu",
-        }
-    if total_vram_gb <= 0:
+def detect_system_memory() -> tuple[int, int]:
+    class MEMORYSTATUSEX(ctypes.Structure):
+        _fields_ = [
+            ("dwLength", ctypes.c_uint32),
+            ("dwMemoryLoad", ctypes.c_uint32),
+            ("ullTotalPhys", ctypes.c_uint64),
+            ("ullAvailPhys", ctypes.c_uint64),
+            ("ullTotalPageFile", ctypes.c_uint64),
+            ("ullAvailPageFile", ctypes.c_uint64),
+            ("ullTotalVirtual", ctypes.c_uint64),
+            ("ullAvailVirtual", ctypes.c_uint64),
+            ("ullAvailExtendedVirtual", ctypes.c_uint64),
+        ]
+
+    try:
+        kernel32 = ctypes.windll.kernel32
+        status = MEMORYSTATUSEX()
+        status.dwLength = ctypes.sizeof(MEMORYSTATUSEX)
+        if kernel32.GlobalMemoryStatusEx(ctypes.byref(status)):
+            return int(status.ullAvailPhys), int(status.ullTotalPhys)
+    except Exception:
+        pass
+    return 0, 0
+
+
+def _recommend_cpu_train_settings(free_ram_gb: float, cpu_count: int) -> Dict[str, Any]:
+    worker_budget = max(cpu_count - 1, 0)
+    if free_ram_gb <= 4.0:
         return {
             "img_size": 384,
             "batch_size": 2,
             "grad_accum": 4,
-            "num_workers": min(max(cpu_count // 2, 0), 2),
+            "num_workers": min(worker_budget, 2),
             "amp": False,
             "device": "cpu",
         }
-    if total_vram_gb <= 1.5:
+    if free_ram_gb <= 8.0:
+        return {
+            "img_size": 512,
+            "batch_size": 4,
+            "grad_accum": 2,
+            "num_workers": min(worker_budget, 4),
+            "amp": False,
+            "device": "cpu",
+        }
+    if free_ram_gb <= 16.0:
+        return {
+            "img_size": 512,
+            "batch_size": 8,
+            "grad_accum": 1,
+            "num_workers": min(worker_budget, 6),
+            "amp": False,
+            "device": "cpu",
+        }
+    return {
+        "img_size": 640,
+        "batch_size": 12,
+        "grad_accum": 1,
+        "num_workers": min(worker_budget, 8),
+        "amp": False,
+        "device": "cpu",
+    }
+
+
+def _recommend_train_settings(total_vram_gb: float, free_vram_gb: float, free_ram_gb: float, cpu_count: int) -> Dict[str, Any]:
+    if total_vram_gb <= 0:
+        return _recommend_cpu_train_settings(free_ram_gb=free_ram_gb, cpu_count=cpu_count)
+
+    usable_vram_gb = max(min(total_vram_gb, free_vram_gb * 0.95), 0.0)
+    if usable_vram_gb <= 0.5:
+        return _recommend_cpu_train_settings(free_ram_gb=free_ram_gb, cpu_count=cpu_count)
+
+    usable_vram_mb = int(usable_vram_gb * 1024)
+    if usable_vram_mb < 512:
+        return _recommend_cpu_train_settings(free_ram_gb=free_ram_gb, cpu_count=cpu_count)
+    if usable_vram_gb <= 1.5:
         return {
             "img_size": 320,
             "batch_size": 1,
@@ -185,7 +265,7 @@ def _recommend_train_settings(total_vram_gb: float, cpu_count: int) -> Dict[str,
             "amp": False,
             "device": "cuda",
         }
-    if total_vram_gb <= 2.0:
+    if usable_vram_gb <= 2.0:
         return {
             "img_size": 384,
             "batch_size": 2,
@@ -194,7 +274,7 @@ def _recommend_train_settings(total_vram_gb: float, cpu_count: int) -> Dict[str,
             "amp": False,
             "device": "cuda",
         }
-    if total_vram_gb <= 3.0:
+    if usable_vram_gb <= 3.0:
         return {
             "img_size": 416,
             "batch_size": 2,
@@ -203,23 +283,23 @@ def _recommend_train_settings(total_vram_gb: float, cpu_count: int) -> Dict[str,
             "amp": False,
             "device": "cuda",
         }
-    if total_vram_gb <= 4.0:
+    if usable_vram_gb <= 4.0:
         return {
             "img_size": 512,
-            "batch_size": 4,
-            "grad_accum": 2,
-            "num_workers": min(max(cpu_count // 2, 1), 4),
+            "batch_size": 16,
+            "grad_accum": 1,
+            "num_workers": 0,
             "amp": False,
             "device": "cuda",
         }
-    return {
-        "img_size": 640,
-        "batch_size": 8,
-        "grad_accum": 1,
-        "num_workers": min(max(cpu_count // 2, 2), 6),
-        "amp": False,
-        "device": "cuda",
-    }
+        return {
+            "img_size": 640,
+            "batch_size": 8,
+            "grad_accum": 1,
+            "num_workers": min(max(cpu_count // 2, 2), 6),
+            "amp": False,
+            "device": "cuda",
+        }
 
 
 def _recommend_augmentation(dataset_size: int, task_names: list[str] | None = None) -> Dict[str, Any]:
@@ -258,13 +338,13 @@ def _count_split_images(split_root: str | None) -> int:
     return sum(1 for path in image_dir.iterdir() if path.is_file())
 
 
-def _recommend_architecture_profile(device_name: str, total_vram_gb: float, dataset_size: int) -> Dict[str, Any]:
+def _recommend_architecture_profile(device_name: str, total_vram_gb: float, free_vram_gb: float, dataset_size: int) -> Dict[str, Any]:
     ordered_profiles = ["firefly", "comet", "nova", "pulsar", "quasar", "supernova"]
 
     if device_name != "cuda":
         hardware_index = 0
     else:
-        total_vram_mb = int(total_vram_gb * 1024)
+        total_vram_mb = int(max(min(total_vram_gb, free_vram_gb * 0.95), 0.0) * 1024)
         if total_vram_mb < 512:
             hardware_index = 0
         elif total_vram_mb < 1024:
@@ -326,20 +406,41 @@ def _recommend_epoch_count(dataset_size: int, device_name: str, total_vram_gb: f
     return int(base_epochs)
 
 
-def resolve_training_config(config_path: str | None, data_yaml: str | None) -> Tuple[Dict[str, Any], Dict[str, Any]]:
+def resolve_training_config(
+    config_path: str | None,
+    data_yaml: str | None,
+    overrides: Mapping[str, Any] | None = None,
+) -> Tuple[Dict[str, Any], Dict[str, Any]]:
     cfg = copy.deepcopy(DEFAULT_TRAINING_CONFIG)
     explicit_train_cfg: Dict[str, Any] = {}
     explicit_augment_cfg: Dict[str, Any] = {}
     explicit_model_cfg: Dict[str, Any] = {}
     explicit_logging_cfg: Dict[str, Any] = {}
+    explicit_root_cfg: Dict[str, Any] = {}
     if config_path:
         with open(config_path, "r", encoding="utf-8") as handle:
             loaded_cfg = yaml.safe_load(handle) or {}
+        explicit_root_cfg = {
+            key: copy.deepcopy(value)
+            for key, value in loaded_cfg.items()
+            if key not in {"train", "augment", "model", "logging"}
+        }
         explicit_train_cfg = copy.deepcopy(loaded_cfg.get("train", {}))
         explicit_augment_cfg = copy.deepcopy(loaded_cfg.get("augment", {}))
         explicit_model_cfg = copy.deepcopy(loaded_cfg.get("model", {}))
         explicit_logging_cfg = copy.deepcopy(loaded_cfg.get("logging", {}))
         cfg = _deep_merge(cfg, loaded_cfg)
+    if overrides:
+        overrides_dict = copy.deepcopy(dict(overrides))
+        explicit_root_cfg = _deep_merge(
+            explicit_root_cfg,
+            {key: value for key, value in overrides_dict.items() if key not in {"train", "augment", "model", "logging"}},
+        )
+        explicit_train_cfg = _deep_merge(explicit_train_cfg, overrides_dict.get("train", {}))
+        explicit_augment_cfg = _deep_merge(explicit_augment_cfg, overrides_dict.get("augment", {}))
+        explicit_model_cfg = _deep_merge(explicit_model_cfg, overrides_dict.get("model", {}))
+        explicit_logging_cfg = _deep_merge(explicit_logging_cfg, overrides_dict.get("logging", {}))
+        cfg = _deep_merge(cfg, overrides_dict)
 
     dataset_info: Dict[str, Any] = {}
     if data_yaml:
@@ -357,6 +458,8 @@ def resolve_training_config(config_path: str | None, data_yaml: str | None) -> T
     if auto_tune_enabled:
         suggested = _recommend_train_settings(
             total_vram_gb=profile["total_vram_gb"] if resolved_device == "cuda" else 0.0,
+            free_vram_gb=profile["free_vram_gb"] if resolved_device == "cuda" else 0.0,
+            free_ram_gb=profile["free_ram_gb"],
             cpu_count=cpu_count,
         )
         cfg["train"].update(suggested)
@@ -374,6 +477,7 @@ def resolve_training_config(config_path: str | None, data_yaml: str | None) -> T
             _recommend_architecture_profile(
                 device_name=resolved_device,
                 total_vram_gb=profile["total_vram_gb"] if resolved_device == "cuda" else 0.0,
+                free_vram_gb=profile["free_vram_gb"] if resolved_device == "cuda" else 0.0,
                 dataset_size=dataset_size,
             ),
         )
@@ -401,6 +505,8 @@ def resolve_training_config(config_path: str | None, data_yaml: str | None) -> T
                 device_name=resolved_device,
             )
 
+    if explicit_root_cfg:
+        cfg = _deep_merge(cfg, explicit_root_cfg)
     if explicit_train_cfg:
         cfg["train"] = _deep_merge(cfg.get("train", {}), explicit_train_cfg)
     if explicit_augment_cfg:
@@ -423,6 +529,27 @@ def resolve_training_config(config_path: str | None, data_yaml: str | None) -> T
     model_profile_key = str(cfg.get("model", {}).get("profile", "quasar")).lower()
     if model_profile_key in ARCHITECTURE_PROFILES:
         model_profile = ARCHITECTURE_PROFILES[model_profile_key]
+        current_model_cfg = copy.deepcopy(cfg.get("model", {}))
+        structural_keys = {
+            "profile",
+            "display_name",
+            "stem_channels",
+            "backbone_channels",
+            "backbone_depths",
+            "neck_channels",
+            "head_feat_channels",
+            "proto_k",
+        }
+        derived_metadata = {
+            key: value
+            for key, value in current_model_cfg.items()
+            if key not in structural_keys
+        }
+        explicit_model_overrides = {
+            key: value
+            for key, value in explicit_model_cfg.items()
+            if key in structural_keys
+        }
         cfg["model"] = _deep_merge(
             {
                 "profile": model_profile.tier_key,
@@ -434,13 +561,18 @@ def resolve_training_config(config_path: str | None, data_yaml: str | None) -> T
                 "head_feat_channels": model_profile.head_feat_channels,
                 "proto_k": model_profile.proto_k,
             },
-            cfg.get("model", {}),
+            derived_metadata,
         )
+        if explicit_model_overrides:
+            cfg["model"] = _deep_merge(cfg["model"], explicit_model_overrides)
 
     resolution = {
         "device": resolved_device,
         "gpu_name": profile["gpu_name"],
         "total_vram_gb": round(profile["total_vram_gb"], 2),
+        "free_vram_gb": round(profile.get("free_vram_gb", 0.0), 2),
+        "free_ram_gb": round(profile.get("free_ram_gb", 0.0), 2),
+        "cpu_count": int(profile.get("cpu_count", cpu_count)),
         "auto_tune_enabled": auto_tune_enabled,
         "batch_size": int(cfg["train"]["batch_size"]),
         "grad_accum": int(cfg["train"]["grad_accum"]),
