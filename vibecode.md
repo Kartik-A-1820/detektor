@@ -220,3 +220,96 @@ Suggested starting points:
 - compare dataset/task assumptions with the current detection-only dataset
 - review training summaries under `runs/chimera_step3_verify` and `runs/chimera`
 - verify whether the existing checkpoint is actually a usable best model or a degraded artifact
+
+## Follow-up Status Update: CUDA 3-Epoch Training Check
+
+Date:
+- March 13, 2026
+
+User request:
+- run actual training on CUDA for 3 epochs
+- check status of losses and metrics
+- aim for YOLO/Ultralytics-style stable training behavior
+
+Files changed in this follow-up:
+- [train.py](F:\detektor\train.py)
+  - fixed in-training validation call to match the actual `validate()` signature
+  - added fallback logic so training can retry a step without AMP if AMP produces non-finite loss components or gradients
+  - fixed `last_epoch_loss` tracking
+- [models/chimera.py](F:\detektor\models\chimera.py)
+  - replaced `sum() * 0.0` zero-loss placeholders with scalar zero tensors to avoid autocast-related `NaN` values in detection-only mode
+- [configs/chimera_s_512_cuda_3epoch_verify.yaml](F:\detektor\configs\chimera_s_512_cuda_3epoch_verify.yaml)
+  - added isolated 3-epoch CUDA verification config
+  - final verified setting uses `amp: false`
+  - final output directory is `runs/chimera_cuda_3epoch_verify_v3_fp32`
+
+What was observed:
+
+### First CUDA run with AMP enabled
+
+Command used:
+
+```powershell
+cmd /c ".venv\Scripts\activate.bat && python train.py --config configs/chimera_s_512_cuda_3epoch_verify.yaml --data-yaml F:/data/data.yaml --ema --grad-clip 10 --run-val --val-freq 1"
+```
+
+Findings:
+- training no longer skipped every step after the code fix
+- however, AMP still caused a bad first step
+- specifically, AMP polluted BatchNorm running statistics with `NaN`
+- those corrupted BatchNorm stats were saved into the checkpoint
+- result: the checkpoint could still be numerically broken at inference/validation time even though training loop fallback continued in fp32
+
+Conclusion:
+- AMP is currently unsafe for this model/training path
+
+### Stable CUDA verification run in fp32
+
+Final verified config:
+- `device: "cuda"`
+- `epochs: 3`
+- `amp: false`
+- `out_dir: runs/chimera_cuda_3epoch_verify_v3_fp32`
+
+Status:
+- verified
+- checkpoint state is numerically clean (`bad_params=0`)
+- training loss is finite and updates across steps/epochs
+- validation now runs during training and records metrics correctly
+
+Epoch summaries observed:
+- Epoch 1 loss: `3.2421`
+- Epoch 2 loss: `4.8859`
+- Epoch 3 loss: `3.8712`
+
+Validation metrics observed:
+- Epoch 1:
+  - precision: `0.0000`
+  - recall: `0.0000`
+  - mAP50: `0.0000`
+- Epoch 2:
+  - precision: `0.0077`
+  - recall: `0.0094`
+  - mAP50: `0.0000`
+  - mean IoU: `0.6553`
+- Epoch 3:
+  - precision: `0.1658`
+  - recall: `0.0809`
+  - mAP50: `0.0136`
+  - mean IoU: `0.6782`
+
+Interpretation:
+- the training path is now numerically stable on CUDA in fp32
+- the model is no longer stuck at absolute zero detections after a short run
+- however, model quality is still far below a healthy YOLO/Ultralytics-style baseline
+- loss behavior is still not convincingly stable, and accuracy remains weak after 3 epochs
+
+Most important updated conclusion:
+- the previous total failure mode was partly a numerical/training-loop issue and is now mitigated
+- the remaining problem is now model-learning quality rather than immediate loss collapse
+- likely next investigation areas are:
+  - detection head / neck stability under AMP
+  - target assignment quality
+  - objectness and classification calibration
+  - loss weighting / warmup behavior
+  - whether BatchNorm is appropriate for the current effective batch behavior

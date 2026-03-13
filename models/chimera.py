@@ -212,7 +212,7 @@ class ChimeraODIS(nn.Module):
         # Task-aware mask loss computation
         if task == "detect":
             # Detection only - skip mask loss
-            zero = proto.sum() * 0.0
+            zero = proto.new_zeros(())
             mask_loss_dict = {
                 "loss_mask_bce": zero,
                 "loss_mask_dice": zero,
@@ -480,7 +480,7 @@ class ChimeraODIS(nn.Module):
             target_masks = torch.cat(batch_gt_masks, dim=0)
             loss_dict = self.segmentation_loss(pred_masks, target_masks)
         else:
-            zero = prototypes.sum() * 0.0
+            zero = prototypes.new_zeros(())
             loss_dict = {
                 "loss_mask_bce": zero,
                 "loss_mask_dice": zero,

@@ -48,6 +48,14 @@ def _load_weights_if_provided(model: ChimeraODIS, weights: str | None, device: t
         model.load_state_dict(checkpoint, strict=True)
 
 
+def _has_non_finite_loss_components(loss_dict: Dict[str, torch.Tensor]) -> bool:
+    """Return True when any tensor-valued loss component contains NaN/Inf."""
+    for value in loss_dict.values():
+        if isinstance(value, torch.Tensor) and not torch.isfinite(value).all():
+            return True
+    return False
+
+
 def train(
     config_path: str,
     data_yaml: str | None = None,
@@ -205,44 +213,91 @@ def train(
 
         for step_index, (imgs, targets) in enumerate(pbar, start=1):
             imgs = imgs.to(device, non_blocking=device.type == "cuda")
+            used_amp_for_step = amp_enabled
 
-            with torch.amp.autocast("cuda", enabled=amp_enabled):
-                loss_dict = model.compute_loss(imgs, targets, return_dict=True, debug=debug_loss, task=task_mode_str)
-                loss = loss_dict["loss_total"] / grad_accum
+            def compute_loss_dict(use_amp: bool) -> Dict[str, torch.Tensor]:
+                with torch.amp.autocast("cuda", enabled=use_amp):
+                    return model.compute_loss(imgs, targets, return_dict=True, debug=debug_loss, task=task_mode_str)
 
+            loss_dict = compute_loss_dict(used_amp_for_step)
+            if _has_non_finite_loss_components(loss_dict):
+                if used_amp_for_step:
+                    print(
+                        f"warning: non-finite loss components at epoch={epoch + 1}, step={step_index} with AMP; retrying in fp32"
+                    )
+                    optimizer.zero_grad(set_to_none=True)
+                    scaler.update()
+                    amp_enabled = False
+                    used_amp_for_step = False
+                    loss_dict = compute_loss_dict(False)
+                if _has_non_finite_loss_components(loss_dict):
+                    print(f"warning: non-finite loss encountered at epoch={epoch + 1}, step={step_index}; skipping step")
+                    optimizer.zero_grad(set_to_none=True)
+                    continue
+
+            loss = loss_dict["loss_total"] / grad_accum
             if not torch.isfinite(loss).all():
                 print(f"warning: non-finite loss encountered at epoch={epoch + 1}, step={step_index}; skipping step")
                 optimizer.zero_grad(set_to_none=True)
                 continue
 
-            scaler.scale(loss).backward()
+            if used_amp_for_step:
+                scaler.scale(loss).backward()
+            else:
+                loss.backward()
 
             if step_index % grad_accum == 0 or step_index == len(loader):
-                # Unscale gradients for clipping
-                scaler.unscale_(optimizer)
-                
-                # Check for NaN/Inf gradients before clipping
+                if used_amp_for_step:
+                    scaler.unscale_(optimizer)
+
                 has_nan_grad = False
                 for param in model.parameters():
-                    if param.grad is not None:
-                        if not torch.isfinite(param.grad).all():
+                    if param.grad is not None and not torch.isfinite(param.grad).all():
+                        has_nan_grad = True
+                        break
+
+                if has_nan_grad and used_amp_for_step:
+                    print(
+                        f"warning: non-finite gradients at epoch={epoch + 1}, step={step_index} with AMP; retrying in fp32"
+                    )
+                    optimizer.zero_grad(set_to_none=True)
+                    scaler.update()
+                    amp_enabled = False
+                    used_amp_for_step = False
+                    loss_dict = compute_loss_dict(False)
+                    if _has_non_finite_loss_components(loss_dict):
+                        print(f"warning: non-finite loss encountered at epoch={epoch + 1}, step={step_index}; skipping step")
+                        optimizer.zero_grad(set_to_none=True)
+                        continue
+                    loss = loss_dict["loss_total"] / grad_accum
+                    if not torch.isfinite(loss).all():
+                        print(f"warning: non-finite loss encountered at epoch={epoch + 1}, step={step_index}; skipping step")
+                        optimizer.zero_grad(set_to_none=True)
+                        continue
+                    loss.backward()
+                    has_nan_grad = False
+                    for param in model.parameters():
+                        if param.grad is not None and not torch.isfinite(param.grad).all():
                             has_nan_grad = True
                             break
-                
+
                 if has_nan_grad:
                     print(f"warning: non-finite gradients at epoch={epoch + 1}, step={step_index}; skipping step")
                     optimizer.zero_grad(set_to_none=True)
-                    scaler.update()
+                    if used_amp_for_step:
+                        scaler.update()
                     continue
-                
-                # Clip gradients
+
                 if grad_clip_norm > 0.0:
                     total_norm = clip_grad_norm_(model.parameters(), max_norm=grad_clip_norm)
                     if total_norm > grad_clip_norm * 10:
                         print(f"warning: large gradient norm {total_norm:.2f} at epoch={epoch + 1}, step={step_index}")
-                
-                scaler.step(optimizer)
-                scaler.update()
+
+                if used_amp_for_step:
+                    scaler.step(optimizer)
+                    scaler.update()
+                else:
+                    optimizer.step()
                 optimizer.zero_grad(set_to_none=True)
                 if ema is not None:
                     ema.update(model)
@@ -272,6 +327,7 @@ def train(
             append_jsonl(metrics_jsonl_path, log_row)
 
         epoch_loss_avg = epoch_loss_sum / max(epoch_steps, 1)
+        last_epoch_loss = epoch_loss_avg
         current_lr = optimizer.param_groups[0]['lr']
         pbar.set_postfix({"loss": f"{epoch_loss_avg:.3g}", "lr": f"{current_lr:.3g}"})
         pbar.close()
@@ -314,23 +370,21 @@ def train(
                 from validate import validate
                 
                 val_metrics = validate(
+                    config_path=config_path,
+                    data_yaml=data_yaml if data_yaml else None,
                     weights=str(last_checkpoint_path),
-                    data_yaml=data_yaml if data_yaml else cfg.get("data", {}).get("yaml", ""),
-                    split="val",
-                    img_size=cfg["model"].get("img_size", 512),
                     batch_size=cfg["train"].get("batch_size", 8),
                     conf_thresh=0.25,
                     iou_thresh=0.6,
-                    device=str(device),
                 )
                 
                 # Log validation metrics
                 val_log = {
                     "epoch": epoch + 1,
-                    "val_precision": val_metrics.get("precision", 0.0),
-                    "val_recall": val_metrics.get("recall", 0.0),
-                    "val_map50": val_metrics.get("map50", 0.0),
-                    "val_mean_iou": val_metrics.get("mean_iou", 0.0),
+                    "val_precision": val_metrics.get("detection", {}).get("precision", 0.0),
+                    "val_recall": val_metrics.get("detection", {}).get("recall", 0.0),
+                    "val_map50": val_metrics.get("detection", {}).get("ap50", 0.0),
+                    "val_mean_iou": val_metrics.get("detection", {}).get("mean_iou", 0.0),
                 }
                 append_jsonl(out_dir / "val_metrics.jsonl", val_log)
                 print(f"Validation: P={val_log['val_precision']:.3f} R={val_log['val_recall']:.3f} mAP50={val_log['val_map50']:.3f}")
