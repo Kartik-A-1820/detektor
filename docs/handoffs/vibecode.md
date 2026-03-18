@@ -59,8 +59,22 @@
     - dataset remains heavily skewed toward `player` annotations (`83.4%` overall) with `ball` at `3.6%`
     - at `512` input resolution with the current `CenterPriorAssigner(center_radius=2.5)`, `70.54%` of training `ball` boxes and `60.0%` of validation `ball` boxes receive zero positive points
     - median `ball` box size is only `3.11 x 5.78 px` on train and `2.67 x 5.33 px` on val, so the current `inside_box` rule is the dominant recall blocker for tiny objects; class imbalance is secondary
+- Latest Phase 3 controlled probe: `2026-03-18`
+  - candidate: stride-aware minimum effective target size (`8 px`) inside `CenterPriorAssigner`
+  - diagnostic artifacts: `F:/detektor/runs/z9_effective_box_phase3/phase3_diagnostics.json`
+  - training run: `F:/detektor/runs/z9_effective_box_5epoch`
+  - standalone validation artifacts: `F:/detektor/runs/z9_effective_box_5epoch_validate`
+  - commands:
+    - `.\.venv\Scripts\python.exe scripts/phase3_diagnostics.py --data-yaml F:/data/data.yaml --output runs/z9_effective_box_phase3/phase3_diagnostics.json`
+    - `.\.venv\Scripts\python.exe train.py --config runs/refactor_verify_5epoch/resolved_train_config.yaml --data-yaml F:/data/data.yaml --device cuda --img-size 512 --epochs 5 --batch-size 4 --grad-accum 2 --lr 0.002 --num-workers 0 --vram-cap 0.8 --no-maximize-batch-size --out-dir runs/z9_effective_box_5epoch --run-val --val-freq 1`
+    - `.\.venv\Scripts\python.exe validate.py --weights runs/z9_effective_box_5epoch/chimera_best.pt --data-yaml F:/data/data.yaml --output-dir runs/z9_effective_box_5epoch_validate`
+  - verified results versus baseline:
+    - assignment audit: `ball` zero-positive rate improved from `70.54%` to `0.0%` on train and from `60.0%` to `0.0%` on val
+    - standalone validation improved overall recall from `0.2913` to `0.4310` and AP50 from `0.2363` to `0.3543`
+    - precision dropped from `0.7808` to `0.6156`
+    - per-class recall is still `0.0000` for `ball`, `goalkeeper`, and `referee`; gains are currently isolated to `player`
 - Main remaining risks:
-  - model quality and recall
+  - model quality and recall outside the dominant `player` class
   - deployment-path verification gaps such as Docker
 
 ## Project Z
@@ -75,18 +89,25 @@ Items:
   - scope:
     - investigate assignment thresholds, positive matching, confidence calibration, and loss weighting
   - current probe status:
-    - tested and rejected on `2026-03-18`: per-GT fallback assignment plus fallback objectness floor `0.2`
-    - training run: `F:/detektor/runs/z9_assigner_fallback_objfloor_5epoch`
-    - standalone validation artifacts: `F:/detektor/runs/z9_assigner_fallback_objfloor_5epoch_validate`
+    - current best controlled probe on `2026-03-18`: stride-aware minimum effective target size (`8 px`) inside `CenterPriorAssigner`
+    - diagnostic artifacts: `F:/detektor/runs/z9_effective_box_phase3/phase3_diagnostics.json`
+    - training run: `F:/detektor/runs/z9_effective_box_5epoch`
+    - standalone validation artifacts: `F:/detektor/runs/z9_effective_box_5epoch_validate`
     - command:
-      - `.\.venv\Scripts\python.exe train.py --config runs/refactor_verify_5epoch/resolved_train_config.yaml --data-yaml F:/data/data.yaml --device cuda --img-size 512 --epochs 5 --batch-size 4 --grad-accum 2 --lr 0.002 --num-workers 0 --vram-cap 0.8 --no-maximize-batch-size --out-dir runs/z9_assigner_fallback_objfloor_5epoch --run-val --val-freq 1`
-      - `.\.venv\Scripts\python.exe validate.py --weights runs/z9_assigner_fallback_objfloor_5epoch/chimera_best.pt --data-yaml F:/data/data.yaml --output-dir runs/z9_assigner_fallback_objfloor_5epoch_validate`
+      - `.\.venv\Scripts\python.exe scripts/phase3_diagnostics.py --data-yaml F:/data/data.yaml --output runs/z9_effective_box_phase3/phase3_diagnostics.json`
+      - `.\.venv\Scripts\python.exe train.py --config runs/refactor_verify_5epoch/resolved_train_config.yaml --data-yaml F:/data/data.yaml --device cuda --img-size 512 --epochs 5 --batch-size 4 --grad-accum 2 --lr 0.002 --num-workers 0 --vram-cap 0.8 --no-maximize-batch-size --out-dir runs/z9_effective_box_5epoch --run-val --val-freq 1`
+      - `.\.venv\Scripts\python.exe validate.py --weights runs/z9_effective_box_5epoch/chimera_best.pt --data-yaml F:/data/data.yaml --output-dir runs/z9_effective_box_5epoch_validate`
     - result versus baseline:
       - baseline standalone validate: precision `0.7808`, recall `0.2913`, AP50 `0.2363`
-      - rejected candidate: precision `0.6781`, recall `0.2692`, AP50 `0.1878`
-      - per-class recall stayed `0.0000` for `ball`, `goalkeeper`, and `referee`, so the candidate did not solve the dominant failure mode
+      - current candidate: precision `0.6156`, recall `0.4310`, AP50 `0.3543`
+      - assignment audit improved `ball` zero-positive rate from `70.54%` to `0.0%` on train and from `60.0%` to `0.0%` on val
+      - per-class recall is still `0.0000` for `ball`, `goalkeeper`, and `referee`, so the dominant non-player failure mode remains open
+    - rejected earlier on `2026-03-18`: per-GT fallback assignment plus fallback objectness floor `0.2`
+      - training run: `F:/detektor/runs/z9_assigner_fallback_objfloor_5epoch`
+      - standalone validation artifacts: `F:/detektor/runs/z9_assigner_fallback_objfloor_5epoch_validate`
+      - result: precision `0.6781`, recall `0.2692`, AP50 `0.1878`
   - target outcome:
-    - materially better recall and mAP on controlled comparisons
+    - materially better recall and mAP on controlled comparisons without leaving small-object and minority-class recall at zero
   - verification:
     - before/after run comparison logged here with exact commands and paths
 
@@ -99,6 +120,14 @@ Items:
   - verification:
     - epoch-by-epoch metrics summary recorded here
     - selected checkpoint and rationale documented here
+
+- `Z-14` `Bug` - Fix training-time validation hook ordering for fresh runs
+  - problem:
+    - `train.py --run-val` attempts validation at epoch 1 before `runs/.../chimera_last.pt` exists, producing a missing-file warning and skipping the first validation point
+  - target outcome:
+    - every requested validation epoch evaluates a real checkpoint without relying on a prior run artifact
+  - verification:
+    - fresh `--run-val` training run records epoch-1 validation metrics without a missing-file warning
 
 Phase 3 exit:
 - recall and mAP improve materially on the active dataset
@@ -153,7 +182,8 @@ Phase 5 exit:
 ## Priority Order
 
 1. `Z-9`
-2. `Z-10`
-3. `Z-11`
-4. `Z-12`
-5. `Z-13`
+2. `Z-14`
+3. `Z-10`
+4. `Z-11`
+5. `Z-12`
+6. `Z-13`

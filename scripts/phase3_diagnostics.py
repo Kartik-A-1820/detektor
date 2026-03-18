@@ -15,6 +15,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
+from losses.detection import CenterPriorAssigner
 from utils.anchors import concatenate_points_and_strides, generate_level_points
 
 
@@ -111,7 +112,7 @@ def _collect_split_summary(
     *,
     class_names: List[str],
     img_size: int,
-    center_radius: float,
+    assigner: CenterPriorAssigner,
     points: torch.Tensor,
     strides: torch.Tensor,
 ) -> Dict[str, Any]:
@@ -128,9 +129,6 @@ def _collect_split_summary(
         "level_hits": defaultdict(Counter),
     }
 
-    px = points[:, 0:1]
-    py = points[:, 1:2]
-
     for image_path in sorted(split_images_dir.iterdir()):
         if not image_path.is_file() or image_path.suffix.lower() not in SUPPORTED_IMAGE_EXTENSIONS:
             continue
@@ -141,28 +139,11 @@ def _collect_split_summary(
             continue
 
         gt_boxes = torch.tensor(boxes, dtype=torch.float32)
-        centers = (gt_boxes[:, :2] + gt_boxes[:, 2:]) * 0.5
-
-        left = px - gt_boxes[:, 0]
-        top = py - gt_boxes[:, 1]
-        right = gt_boxes[:, 2] - px
-        bottom = gt_boxes[:, 3] - py
-        deltas = torch.stack((left, top, right, bottom), dim=-1)
-        inside_box = deltas.amin(dim=-1) > 0
-
-        radii = strides[:, None] * center_radius
-        center_left = px - (centers[:, 0] - radii)
-        center_top = py - (centers[:, 1] - radii)
-        center_right = (centers[:, 0] + radii) - px
-        center_bottom = (centers[:, 1] + radii) - py
-        inside_center = torch.stack((center_left, center_top, center_right, center_bottom), dim=-1).amin(dim=-1) > 0
-
-        max_scale = strides[:, None] * 8.0
-        fits_scale = deltas.amax(dim=-1) <= max_scale
-        match_matrix = inside_box & inside_center & fits_scale
-        fallback_matrix = inside_box & inside_center
-        has_match = match_matrix.any(dim=1)
-        match_matrix = torch.where(has_match[:, None], match_matrix, fallback_matrix)
+        match_matrix = assigner.build_match_matrix(
+            points=points,
+            strides=strides,
+            gt_boxes=gt_boxes,
+        )
 
         for gt_index, class_id in enumerate(labels):
             width_px = float(gt_boxes[gt_index, 2] - gt_boxes[gt_index, 0])
@@ -215,6 +196,7 @@ def build_phase3_diagnostics(data_yaml: Path, *, img_size: int, center_radius: f
     dataset = _load_dataset_yaml(data_yaml)
     class_names = _normalize_class_names(dataset["names"])
     points, strides, stride_levels = _build_points(img_size)
+    assigner = CenterPriorAssigner(center_radius=center_radius)
 
     train_images_dir = Path(dataset["train"])
     val_images_dir = Path(dataset["val"])
@@ -224,13 +206,14 @@ def build_phase3_diagnostics(data_yaml: Path, *, img_size: int, center_radius: f
         "img_size": int(img_size),
         "assigner": {
             "center_radius": float(center_radius),
+            "min_effective_box_size": float(assigner.min_effective_box_size),
             "strides": stride_levels,
         },
         "train": _collect_split_summary(
             train_images_dir,
             class_names=class_names,
             img_size=img_size,
-            center_radius=center_radius,
+            assigner=assigner,
             points=points,
             strides=strides,
         ),
@@ -238,7 +221,7 @@ def build_phase3_diagnostics(data_yaml: Path, *, img_size: int, center_radius: f
             val_images_dir,
             class_names=class_names,
             img_size=img_size,
-            center_radius=center_radius,
+            assigner=assigner,
             points=points,
             strides=strides,
         ),

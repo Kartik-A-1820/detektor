@@ -32,8 +32,58 @@ class CenterPriorAssigner:
     the smallest-area box is selected to reduce ambiguity for crowded scenes.
     """
 
-    def __init__(self, center_radius: float = 2.5) -> None:
+    def __init__(self, center_radius: float = 2.5, min_effective_box_size: float = 8.0) -> None:
         self.center_radius = center_radius
+        self.min_effective_box_size = min_effective_box_size
+
+    def build_match_matrix(
+        self,
+        points: Tensor,
+        strides: Tensor,
+        gt_boxes: Tensor,
+    ) -> Tensor:
+        """Build the boolean point-to-GT match matrix for one image."""
+        if gt_boxes.numel() == 0:
+            return torch.zeros((points.shape[0], 0), device=points.device, dtype=torch.bool)
+
+        px = points[:, 0:1]
+        py = points[:, 1:2]
+
+        left = px - gt_boxes[:, 0]
+        top = py - gt_boxes[:, 1]
+        right = gt_boxes[:, 2] - px
+        bottom = gt_boxes[:, 3] - py
+        deltas = torch.stack((left, top, right, bottom), dim=-1)
+
+        centers = (gt_boxes[:, :2] + gt_boxes[:, 2:]) * 0.5
+        gt_half_w = (gt_boxes[:, 2] - gt_boxes[:, 0]).mul(0.5).unsqueeze(0)
+        gt_half_h = (gt_boxes[:, 3] - gt_boxes[:, 1]).mul(0.5).unsqueeze(0)
+        min_half_extent = strides[:, None] * (self.min_effective_box_size / 16.0)
+        effective_half_w = torch.maximum(gt_half_w, min_half_extent)
+        effective_half_h = torch.maximum(gt_half_h, min_half_extent)
+        expanded_left = px - (centers[:, 0] - effective_half_w)
+        expanded_top = py - (centers[:, 1] - effective_half_h)
+        expanded_right = (centers[:, 0] + effective_half_w) - px
+        expanded_bottom = (centers[:, 1] + effective_half_h) - py
+        inside_effective_box = (
+            torch.stack((expanded_left, expanded_top, expanded_right, expanded_bottom), dim=-1).amin(dim=-1) >= 0
+        )
+
+        radii = strides[:, None] * self.center_radius
+        center_left = px - (centers[:, 0] - radii)
+        center_top = py - (centers[:, 1] - radii)
+        center_right = (centers[:, 0] + radii) - px
+        center_bottom = (centers[:, 1] + radii) - py
+        center_deltas = torch.stack((center_left, center_top, center_right, center_bottom), dim=-1)
+        inside_center = center_deltas.amin(dim=-1) > 0
+
+        max_scale = strides[:, None] * 8.0
+        fits_scale = deltas.amax(dim=-1) <= max_scale
+
+        match_matrix = inside_effective_box & inside_center & fits_scale
+        fallback_matrix = inside_effective_box & inside_center
+        has_match = match_matrix.any(dim=1)
+        return torch.where(has_match[:, None], match_matrix, fallback_matrix)
 
     def assign(
         self,
@@ -62,33 +112,12 @@ class CenterPriorAssigner:
                 "matched_gt_indices": matched_gt_indices,
             }
 
-        px = points[:, 0:1]
-        py = points[:, 1:2]
-
-        left = px - gt_boxes[:, 0]
-        top = py - gt_boxes[:, 1]
-        right = gt_boxes[:, 2] - px
-        bottom = gt_boxes[:, 3] - py
-        deltas = torch.stack((left, top, right, bottom), dim=-1)
-        inside_box = deltas.amin(dim=-1) > 0
-
-        centers = (gt_boxes[:, :2] + gt_boxes[:, 2:]) * 0.5
-        radii = strides[:, None] * self.center_radius
-        center_left = px - (centers[:, 0] - radii)
-        center_top = py - (centers[:, 1] - radii)
-        center_right = (centers[:, 0] + radii) - px
-        center_bottom = (centers[:, 1] + radii) - py
-        center_deltas = torch.stack((center_left, center_top, center_right, center_bottom), dim=-1)
-        inside_center = center_deltas.amin(dim=-1) > 0
-
         gt_areas = box_area(gt_boxes)
-        max_scale = strides[:, None] * 8.0
-        fits_scale = deltas.amax(dim=-1) <= max_scale
-
-        match_matrix = inside_box & inside_center & fits_scale
-        fallback_matrix = inside_box & inside_center
-        has_match = match_matrix.any(dim=1)
-        match_matrix = torch.where(has_match[:, None], match_matrix, fallback_matrix)
+        match_matrix = self.build_match_matrix(
+            points=points,
+            strides=strides,
+            gt_boxes=gt_boxes,
+        )
 
         if not match_matrix.any():
             return {
