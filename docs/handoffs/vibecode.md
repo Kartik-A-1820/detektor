@@ -73,6 +73,19 @@
     - standalone validation improved overall recall from `0.2913` to `0.4310` and AP50 from `0.2363` to `0.3543`
     - precision dropped from `0.7808` to `0.6156`
     - per-class recall is still `0.0000` for `ball`, `goalkeeper`, and `referee`; gains are currently isolated to `player`
+- Latest Phase 3 architecture probe: `2026-03-18`
+  - candidate: real `nova` profile from the current assigner baseline
+  - config: `F:/detektor/runs/z16_nova_5epoch_config.yaml`
+  - training run: `F:/detektor/runs/z16_nova_5epoch_real`
+  - standalone validation artifacts: `F:/detektor/runs/z16_nova_5epoch_real_validate`
+  - commands:
+    - `.\.venv\Scripts\python.exe train.py --config runs/z16_nova_5epoch_config.yaml --data-yaml F:/data/data.yaml --device cuda --img-size 512 --epochs 5 --batch-size 4 --grad-accum 2 --lr 0.002 --num-workers 0 --vram-cap 0.8 --no-maximize-batch-size --out-dir runs/z16_nova_5epoch_real --run-val --val-freq 1`
+    - `.\.venv\Scripts\python.exe validate.py --weights runs/z16_nova_5epoch_real/chimera_best.pt --data-yaml F:/data/data.yaml --output-dir runs/z16_nova_5epoch_real_validate`
+  - verified results versus `runs/z9_effective_box_5epoch_validate`:
+    - standalone validation regressed from precision `0.6156`, recall `0.4310`, AP50 `0.3543`, mean box IoU `0.6754` to `0.0000` across all four metrics
+    - `per_class_metrics.csv` stayed at `0.0000` recall for `ball`, `goalkeeper`, and `referee`, and also dropped `player` recall from `0.5200` to `0.0000`
+    - in-loop validation stayed at `0.0000` `val_map50` for epochs `1` through `5`, so this probe does not support the capacity-limiter hypothesis on the current settings
+
 - Latest training-time validation hook verification: `2026-03-18`
   - fix scope:
     - `train.py --run-val` now writes `chimera_last.pt` before each in-loop validation, so epoch 1 validates a real checkpoint on fresh runs
@@ -137,6 +150,7 @@ Items:
     - first, keep the current assigner change as the baseline and do not revert it unless a new controlled probe beats `runs/z9_effective_box_5epoch_validate` and clears the minority-class gate
     - second, prioritize changes that can create non-zero recall for at least one of `ball`, `goalkeeper`, or `referee`
     - third, use `per_class_metrics.csv` as a hard promotion gate, not just aggregate AP50
+    - fourth, if calibration changes still fail, evaluate whether capacity is the limiter by running one controlled architecture probe before any broad refactor
     - do not start `Z-10` until a 5-epoch probe produces non-zero standalone validation recall for at least one currently dead minority class
   - exit criteria:
     - materially better recall and AP50 than the Z-8 baseline
@@ -161,6 +175,40 @@ Items:
     - epoch-by-epoch metrics summary recorded here
     - selected checkpoint and rationale documented here
     - standalone validation artifacts for the long run recorded here
+
+- `Z-16` `Story` - Test whether model capacity is the blocker for minority-class recall
+  - problem:
+    - assignment is fixed, but repeated short probes still improve only `player`, which may indicate the current `comet` profile lacks enough capacity for minority classes at `512`
+  - scope:
+    - run one controlled architecture probe from the same training baseline with a larger existing profile such as `nova` or `pulsar`
+    - keep dataset, assignment behavior, and validation flow otherwise comparable
+    - compare both aggregate metrics and `per_class_metrics.csv` against `runs/z9_effective_box_5epoch_validate`
+  - latest result:
+    - `2026-03-18`: real `nova` probe using `F:/detektor/runs/z16_nova_5epoch_config.yaml`
+    - training run: `F:/detektor/runs/z16_nova_5epoch_real`
+    - standalone validation artifacts: `F:/detektor/runs/z16_nova_5epoch_real_validate`
+    - result versus `runs/z9_effective_box_5epoch_validate`:
+      - overall standalone validation regressed to precision `0.0000`, recall `0.0000`, AP50 `0.0000`, mean box IoU `0.0000`
+      - `per_class_metrics.csv` kept `ball`, `goalkeeper`, and `referee` at `0.0000` recall and also collapsed `player` recall to `0.0000`
+  - target outcome:
+    - determine whether architecture scale yields non-zero recall for at least one of `ball`, `goalkeeper`, or `referee`
+  - verification:
+    - exact config path, train command, validate command, run directories, and per-class metrics recorded here
+
+- `Z-17` `Story` - Verify whether longer short-run persistence helps minority classes
+  - problem:
+    - current 5-epoch probes may be too short to show minority-class learning even when overall recall improves
+  - scope:
+    - run one controlled 10-epoch continuation-style probe only after selecting the best current 5-epoch candidate
+    - compare epoch-by-epoch validation history and standalone `validate.py` output against the 5-epoch result, not just the baseline
+    - stop using longer runs as a blind search; require per-class evidence
+  - current status `2026-03-18`:
+    - not started
+    - minority-class recall is still unresolved after the real `nova` architecture probe failed, so this is now the next item to consider if Phase 3 work continues
+  - target outcome:
+    - determine whether extra optimization time produces non-zero minority-class recall or just amplifies `player`
+  - verification:
+    - exact commands, selected checkpoint, validation history, and `per_class_metrics.csv` comparison recorded here
 
 - `Z-15` `Story` - Add per-class Phase 3 promotion gates to validation reporting
   - problem:
@@ -223,8 +271,24 @@ Phase 5 exit:
 ## Priority Order
 
 1. `Z-9`
-2. `Z-15`
-3. `Z-10`
-4. `Z-11`
-5. `Z-12`
-6. `Z-13`
+2. `Z-16`
+3. `Z-17`
+4. `Z-15`
+5. `Z-10`
+6. `Z-11`
+7. `Z-12`
+8. `Z-13`
+
+
+## Next Agent Prompt
+
+- Use local workspace state after `27a5289`.
+- Read `docs/handoffs/vibecode.md` first and keep `Z-9` open.
+- Respect the current assigner baseline from `runs/z9_effective_box_5epoch_validate`; do not revert it unless a new controlled probe beats that run and clears the minority-class gate.
+- Treat `runs/z16_nova_5epoch_real_validate/per_class_metrics.csv` as a rejected architecture probe: real `nova` collapsed to zero predictions and does not justify promotion.
+- Priority order for pickup:
+  - `Z-9` remains the active story.
+  - Consider `Z-17` next only because minority-class recall is still unresolved after the failed Z-16 probe.
+  - Keep `Z-15` and `Z-10` behind that gate.
+- If you continue with `Z-17`, run one controlled 10-epoch continuation-style probe from the best current 5-epoch candidate, compare against `runs/z9_effective_box_5epoch_validate`, and require standalone `validate.py` evidence with `per_class_metrics.csv`.
+- Promotion gate is unchanged: do not advance unless at least one of `ball`, `goalkeeper`, or `referee` reaches non-zero standalone validation recall.
