@@ -13,9 +13,12 @@ dist/
 build/
 runs/
 datasets/
+artifacts/
+reports/
 .env
 .vscode/
 .ipynb_checkpoints/
 *.pt
 *.onnx
 *.engine
+.tmp_testdata/

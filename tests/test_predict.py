@@ -55,6 +55,19 @@ class PredictSmokeTests(unittest.TestCase):
             self.assertEqual(prediction["scores"].shape[0], prediction["labels"].shape[0])
             self.assertEqual(prediction["masks"].shape[0], prediction["labels"].shape[0])
 
+    def test_detect_task_still_returns_masks_key(self) -> None:
+        model = ChimeraODIS(num_classes=1, proto_k=24)
+        model.eval()
+        x = torch.randn(1, 3, 512, 512)
+        with torch.no_grad():
+            predictions = model.predict(x, original_sizes=[(512, 512)], conf_thresh=0.0, task="detect")
+
+        prediction = predictions[0]
+        self.assertIn("masks", prediction)
+        self.assertEqual(prediction["masks"].ndim, 3)
+        self.assertEqual(prediction["masks"].shape[-2:], (512, 512))
+        self.assertEqual(prediction["masks"].shape[0], prediction["boxes"].shape[0])
+
 
 if __name__ == "__main__":
     unittest.main()

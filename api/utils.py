@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import base64
-from typing import Dict, Tuple
+from typing import Dict, Optional, Tuple
 
 import cv2
 import numpy as np
@@ -9,6 +9,7 @@ import torch
 from torch import Tensor
 
 from models.chimera import ChimeraODIS
+from models.factory import build_model_from_checkpoint, infer_num_classes_from_checkpoint, load_model_weights
 from utils.visualize import draw_boxes
 
 
@@ -21,20 +22,27 @@ def resolve_device(device_name: str | None = None) -> torch.device:
     return torch.device(device_name)
 
 
+def _detect_num_classes(checkpoint: Dict) -> int:
+    """Auto-detect num_classes from checkpoint by inspecting classification head."""
+    return infer_num_classes_from_checkpoint(checkpoint)
+
+
 def load_model(
     weights: str,
-    num_classes: int = 1,
+    num_classes: Optional[int] = None,
     proto_k: int = 24,
     device_name: str | None = None,
 ) -> Tuple[ChimeraODIS, torch.device]:
     """Load a ChimeraODIS model once for service or CLI inference."""
     device = resolve_device(device_name)
-    model = ChimeraODIS(num_classes=num_classes, proto_k=proto_k).to(device)
     checkpoint = torch.load(weights, map_location=device)
-    if isinstance(checkpoint, dict) and "model_state" in checkpoint:
-        model.load_state_dict(checkpoint["model_state"], strict=True)
-    else:
-        model.load_state_dict(checkpoint, strict=True)
+    
+    if num_classes is None:
+        num_classes = _detect_num_classes(checkpoint)
+        print(f"[INFO] auto-detected num_classes={num_classes} from checkpoint")
+    
+    model = build_model_from_checkpoint(checkpoint, num_classes=num_classes, proto_k=proto_k).to(device)
+    load_model_weights(model, checkpoint, strict=True)
     model.eval()
     return model, device
 

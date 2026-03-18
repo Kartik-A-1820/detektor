@@ -27,7 +27,9 @@ def load_dataset_yaml(data_yaml_path: str) -> Dict[str, Any]:
     base_dir = dataset_yaml_path.parent
 
     names = payload.get("names")
-    if isinstance(names, tuple):
+    if isinstance(names, dict):
+        names = [name for _, name in sorted(names.items())]
+    elif isinstance(names, tuple):
         names = list(names)
     if isinstance(names, str):
         names = [names]

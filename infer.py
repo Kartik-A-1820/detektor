@@ -8,7 +8,7 @@ import cv2
 import torch
 from torch import Tensor
 
-from models.chimera import ChimeraODIS
+from models.factory import build_model_from_checkpoint, infer_num_classes_from_checkpoint, load_model_weights
 from utils.visualize import draw_boxes
 
 
@@ -54,15 +54,7 @@ def _prepare_image(source: str, image_size: int = 512) -> tuple[Tensor, "np.ndar
 
 def _detect_num_classes(checkpoint: Dict) -> int:
     """Auto-detect num_classes from checkpoint by inspecting classification head."""
-    if isinstance(checkpoint, dict) and "model_state" in checkpoint:
-        state_dict = checkpoint["model_state"]
-    else:
-        state_dict = checkpoint
-    
-    for key in state_dict.keys():
-        if "cls_preds" in key and "bias" in key:
-            return state_dict[key].shape[0]
-    return 1
+    return infer_num_classes_from_checkpoint(checkpoint)
 
 
 def infer(
@@ -77,6 +69,7 @@ def infer(
     mask_thresh: float = 0.5,
     save_path: Optional[str] = None,
     class_names: Optional[List[str]] = None,
+    task: str = "segment",
 ) -> Dict[str, Tensor]:
     """Run ChimeraODIS inference on one image and optionally save a visualization."""
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -86,11 +79,8 @@ def infer(
         num_classes = _detect_num_classes(checkpoint)
         print(f"auto-detected num_classes={num_classes} from checkpoint")
     
-    model = ChimeraODIS(num_classes=num_classes).to(device)
-    if isinstance(checkpoint, dict) and "model_state" in checkpoint:
-        model.load_state_dict(checkpoint["model_state"], strict=True)
-    else:
-        model.load_state_dict(checkpoint, strict=True)
+    model = build_model_from_checkpoint(checkpoint, num_classes=num_classes).to(device)
+    load_model_weights(model, checkpoint, strict=True)
     model.eval()
 
     image_tensor, original_rgb, original_size = _prepare_image(source, image_size=image_size)
@@ -104,6 +94,7 @@ def infer(
         topk_pre_nms=topk_pre_nms,
         max_det=max_det,
         mask_thresh=mask_thresh,
+        task=task,
     )[0]
 
     num_det = int(predictions["boxes"].shape[0])
@@ -119,7 +110,9 @@ def infer(
         print(f"detections: {num_det}")
         print(f"labels: {label_list}")
         print(f"scores: {score_list}")
-    print(f"mask_count: {int(predictions['masks'].shape[0])}")
+    
+    if task == "segment" and "masks" in predictions:
+        print(f"mask_count: {int(predictions['masks'].shape[0])}")
 
     vis_image = original_rgb.copy()
     vis_image = draw_boxes(vis_image, predictions["boxes"].detach().cpu().numpy())
@@ -144,6 +137,7 @@ def infer_folder(
     max_det: int = 100,
     mask_thresh: float = 0.5,
     class_names: Optional[List[str]] = None,
+    task: str = "segment",
 ) -> None:
     """Run inference on all images in a folder and save visualizations."""
     source_path = Path(source_dir)
@@ -167,11 +161,8 @@ def infer_folder(
         num_classes = _detect_num_classes(checkpoint)
         print(f"auto-detected num_classes={num_classes} from checkpoint")
     
-    model = ChimeraODIS(num_classes=num_classes).to(device)
-    if isinstance(checkpoint, dict) and "model_state" in checkpoint:
-        model.load_state_dict(checkpoint["model_state"], strict=True)
-    else:
-        model.load_state_dict(checkpoint, strict=True)
+    model = build_model_from_checkpoint(checkpoint, num_classes=num_classes).to(device)
+    load_model_weights(model, checkpoint, strict=True)
     model.eval()
     
     for idx, image_file in enumerate(image_files, start=1):
@@ -189,6 +180,7 @@ def infer_folder(
                 topk_pre_nms=topk_pre_nms,
                 max_det=max_det,
                 mask_thresh=mask_thresh,
+                task=task,
             )[0]
             
             num_det = int(predictions["boxes"].shape[0])
@@ -231,6 +223,7 @@ if __name__ == "__main__":
     parser.add_argument("--max-det", type=int, default=100, help="Maximum detections per image")
     parser.add_argument("--mask-thresh", type=float, default=0.5, help="Threshold used to binarize predicted masks")
     parser.add_argument("--save-path", type=str, default="", help="Output path for single image or folder for batch")
+    parser.add_argument("--task", type=str, default="segment", choices=["detect", "segment"], help="Task mode: 'detect' (boxes only) or 'segment' (boxes + masks)")
     args = parser.parse_args()
     
     class_names = None
@@ -256,6 +249,7 @@ if __name__ == "__main__":
             max_det=args.max_det,
             mask_thresh=args.mask_thresh,
             class_names=class_names,
+            task=args.task,
         )
     else:
         save_path = args.save_path if args.save_path else f"runs/inference/{source_path.stem}_pred{source_path.suffix}"
@@ -271,4 +265,5 @@ if __name__ == "__main__":
             mask_thresh=args.mask_thresh,
             save_path=save_path,
             class_names=class_names,
+            task=args.task,
         )

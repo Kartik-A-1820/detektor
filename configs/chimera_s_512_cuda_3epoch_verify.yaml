@@ -1,0 +1,40 @@
+device: "cuda"
+seed: 42
+
+data:
+  format: "auto"
+  train: "data/train"
+  val: "data/val"
+  coco_train_json: ""
+  coco_val_json: ""
+  images_dir_train: ""
+  images_dir_val: ""
+  num_classes: 1
+
+train:
+  img_size: 512
+  epochs: 3
+  batch_size: 8
+  lr: 0.002
+  weight_decay: 0.05
+  optimizer: "adamw"
+  scheduler: "cosine"
+  warmup_epochs: 3
+  momentum: 0.937
+  amp: false
+  grad_accum: 1
+  vram_cap: 0.80
+  conf_thresh: 0.25
+  iou_thresh: 0.6
+
+loss:
+  cls: "bce"
+  box: "ciou"
+  obj: "bce"
+  seg: "bce_dice"
+
+model:
+  proto_k: 24
+
+logging:
+  out_dir: "runs/chimera_cuda_3epoch_verify_v3_fp32"

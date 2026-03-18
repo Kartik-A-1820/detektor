@@ -43,7 +43,7 @@ pip install -r requirements-dev.txt
 Run the lightweight smoke suite:
 
 ```bash
-python run_smoke_checks.py
+python -m scripts.run_smoke_checks
 ```
 
 Run unit tests:
@@ -81,3 +81,4 @@ PRs that are easier to review tend to:
 - avoid unnecessary formatting churn
 - preserve existing workflows
 - include concise documentation updates where needed
+

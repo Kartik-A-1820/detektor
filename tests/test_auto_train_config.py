@@ -1,0 +1,404 @@
+"""Tests for automatic training configuration and training augmentations."""
+
+from __future__ import annotations
+
+import unittest
+from pathlib import Path
+from types import SimpleNamespace
+from unittest import mock
+
+import cv2
+import numpy as np
+import yaml
+
+from datasets.yolo_seg import YOLOSegDataset
+from utils.auto_train_config import plan_smart_retry, resolve_training_config
+from utils.data_config import load_dataset_yaml
+
+
+class TestAutoTrainConfig(unittest.TestCase):
+    """Unit tests for hardware-aware training config resolution."""
+
+    def setUp(self) -> None:
+        temp_root = Path(__file__).resolve().parents[1] / "reports" / "test_tmp"
+        temp_root.mkdir(parents=True, exist_ok=True)
+        self.temp_path = temp_root / "auto_train_config"
+        self.temp_path.mkdir(parents=True, exist_ok=True)
+
+    def _create_dataset_yaml(self) -> Path:
+        dataset_root = self.temp_path / "toy_dataset"
+        for split in ("train", "val"):
+            (dataset_root / split / "images").mkdir(parents=True, exist_ok=True)
+            (dataset_root / split / "labels").mkdir(parents=True, exist_ok=True)
+
+        image = np.zeros((64, 64, 3), dtype=np.uint8)
+        for idx in range(3):
+            cv2.imwrite(str(dataset_root / "train" / "images" / f"img_{idx}.jpg"), image)
+            (dataset_root / "train" / "labels" / f"img_{idx}.txt").write_text("0 0.5 0.5 0.25 0.25\n", encoding="utf-8")
+        cv2.imwrite(str(dataset_root / "val" / "images" / "img_0.jpg"), image)
+        (dataset_root / "val" / "labels" / "img_0.txt").write_text("0 0.5 0.5 0.25 0.25\n", encoding="utf-8")
+
+        payload = {
+            "train": str(dataset_root / "train" / "images"),
+            "val": str(dataset_root / "val" / "images"),
+            "nc": 1,
+            "names": {0: "ball"},
+        }
+        yaml_path = self.temp_path / "data.yaml"
+        yaml_path.write_text(yaml.safe_dump(payload), encoding="utf-8")
+        return yaml_path
+
+    def test_load_dataset_yaml_normalizes_dict_names(self) -> None:
+        yaml_path = self._create_dataset_yaml()
+
+        normalized = load_dataset_yaml(str(yaml_path))
+
+        self.assertEqual(normalized["class_names"], ["ball"])
+        self.assertTrue(normalized["train"].endswith("train"))
+        self.assertTrue(normalized["val"].endswith("val"))
+
+    def test_resolve_training_config_auto_tunes_from_small_gpu(self) -> None:
+        yaml_path = self._create_dataset_yaml()
+        fake_props = SimpleNamespace(name="Tiny GPU", total_memory=2 * 1024 ** 3, major=7, minor=5)
+
+        with (
+            mock.patch("utils.auto_train_config.torch.cuda.is_available", return_value=True),
+            mock.patch("utils.auto_train_config.torch.cuda.get_device_properties", return_value=fake_props),
+            mock.patch("utils.auto_train_config.torch.cuda.is_bf16_supported", return_value=False),
+        ):
+            cfg, summary = resolve_training_config(None, str(yaml_path))
+
+        self.assertEqual(cfg["device"], "cuda")
+        self.assertEqual(cfg["train"]["img_size"], 384)
+        self.assertEqual(cfg["train"]["batch_size"], 2)
+        self.assertEqual(cfg["train"]["grad_accum"], 4)
+        self.assertEqual(cfg["train"]["epochs"], 36)
+        self.assertFalse(cfg["train"]["amp"])
+        self.assertEqual(cfg["data"]["num_classes"], 1)
+        self.assertEqual(cfg["data"]["names"], ["ball"])
+        self.assertEqual(cfg["model"]["profile"], "comet")
+        self.assertEqual(summary["model_display_name"], "Comet")
+        self.assertTrue(summary["out_dir"].startswith("runs"))
+        self.assertGreater(summary["augment"]["scale"], 0.0)
+        self.assertGreater(summary["augment"]["mosaic"], 0.0)
+
+    def test_resolve_training_config_falls_back_to_cpu_below_half_gb(self) -> None:
+        yaml_path = self._create_dataset_yaml()
+        fake_props = SimpleNamespace(name="Tiny GPU", total_memory=400 * 1024 ** 2, major=7, minor=5)
+
+        with (
+            mock.patch("utils.auto_train_config.torch.cuda.is_available", return_value=True),
+            mock.patch("utils.auto_train_config.torch.cuda.get_device_properties", return_value=fake_props),
+            mock.patch("utils.auto_train_config.torch.cuda.is_bf16_supported", return_value=False),
+        ):
+            cfg, summary = resolve_training_config(None, str(yaml_path))
+
+        self.assertEqual(cfg["device"], "cpu")
+        self.assertEqual(cfg["train"]["epochs"], 24)
+        self.assertEqual(cfg["model"]["profile"], "firefly")
+        self.assertEqual(summary["model_display_name"], "Firefly")
+
+    def test_resolve_training_config_prefers_larger_batch_on_four_gb_gpu(self) -> None:
+        yaml_path = self._create_dataset_yaml()
+        fake_props = SimpleNamespace(name="GTX 1650 Ti", total_memory=4 * 1024 ** 3, major=7, minor=5)
+
+        with (
+            mock.patch("utils.auto_train_config.torch.cuda.is_available", return_value=True),
+            mock.patch("utils.auto_train_config.torch.cuda.get_device_properties", return_value=fake_props),
+            mock.patch("utils.auto_train_config.torch.cuda.is_bf16_supported", return_value=False),
+        ):
+            cfg, summary = resolve_training_config(None, str(yaml_path))
+
+        self.assertEqual(cfg["device"], "cuda")
+        self.assertEqual(cfg["train"]["img_size"], 512)
+        self.assertEqual(cfg["train"]["batch_size"], 16)
+        self.assertEqual(cfg["train"]["grad_accum"], 1)
+        self.assertEqual(cfg["train"]["batch_size_multiple"], 4)
+        self.assertEqual(cfg["train"]["max_batch_probe"], 64)
+        self.assertAlmostEqual(cfg["train"]["vram_cap"], 0.95)
+        self.assertEqual(summary["effective_batch_size"], 16)
+
+    def test_resolve_training_config_uses_free_vram_not_total_vram(self) -> None:
+        yaml_path = self._create_dataset_yaml()
+        fake_props = SimpleNamespace(name="Busy GTX 1650 Ti", total_memory=4 * 1024 ** 3, major=7, minor=5)
+
+        with (
+            mock.patch("utils.auto_train_config.torch.cuda.is_available", return_value=True),
+            mock.patch("utils.auto_train_config.torch.cuda.get_device_properties", return_value=fake_props),
+            mock.patch("utils.auto_train_config.torch.cuda.mem_get_info", return_value=(2300 * 1024 ** 2, 4 * 1024 ** 3)),
+            mock.patch("utils.auto_train_config.torch.cuda.is_bf16_supported", return_value=False),
+            mock.patch("utils.auto_train_config.detect_system_memory", return_value=(16 * 1024 ** 3, 32 * 1024 ** 3)),
+        ):
+            cfg, summary = resolve_training_config(None, str(yaml_path))
+
+        self.assertEqual(cfg["device"], "cuda")
+        self.assertEqual(cfg["train"]["img_size"], 416)
+        self.assertEqual(cfg["train"]["batch_size"], 2)
+        self.assertEqual(cfg["model"]["profile"], "comet")
+        self.assertAlmostEqual(summary["free_vram_gb"], round(2300 / 1024, 2), places=2)
+
+    def test_resolve_training_config_cpu_mode_uses_free_ram_and_cpu_count(self) -> None:
+        yaml_path = self._create_dataset_yaml()
+
+        with (
+            mock.patch("utils.auto_train_config.torch.cuda.is_available", return_value=False),
+            mock.patch("utils.auto_train_config.detect_system_memory", return_value=(12 * 1024 ** 3, 32 * 1024 ** 3)),
+            mock.patch("utils.auto_train_config.os.cpu_count", return_value=12),
+        ):
+            cfg, summary = resolve_training_config(None, str(yaml_path))
+
+        self.assertEqual(cfg["device"], "cpu")
+        self.assertEqual(cfg["train"]["img_size"], 512)
+        self.assertEqual(cfg["train"]["batch_size"], 8)
+        self.assertEqual(cfg["train"]["grad_accum"], 1)
+        self.assertEqual(cfg["train"]["num_workers"], 6)
+        self.assertEqual(summary["cpu_count"], 12)
+        self.assertAlmostEqual(summary["free_ram_gb"], 12.0)
+
+    def test_resolve_training_config_applies_explicit_overrides_after_auto_tune(self) -> None:
+        yaml_path = self._create_dataset_yaml()
+        fake_props = SimpleNamespace(name="GTX 1650 Ti", total_memory=4 * 1024 ** 3, major=7, minor=5)
+        overrides = {
+            "train": {
+                "epochs": 7,
+                "batch_size": 12,
+                "auto_tune": False,
+                "amp": True,
+            },
+            "augment": {
+                "mosaic": 0.25,
+                "enabled": False,
+            },
+            "model": {
+                "profile": "nova",
+            },
+            "logging": {
+                "out_dir": "runs/cli_override_test",
+            },
+        }
+
+        with (
+            mock.patch("utils.auto_train_config.torch.cuda.is_available", return_value=True),
+            mock.patch("utils.auto_train_config.torch.cuda.get_device_properties", return_value=fake_props),
+            mock.patch("utils.auto_train_config.torch.cuda.is_bf16_supported", return_value=False),
+        ):
+            cfg, summary = resolve_training_config(None, str(yaml_path), overrides=overrides)
+
+        self.assertEqual(cfg["train"]["epochs"], 7)
+        self.assertEqual(cfg["train"]["batch_size"], 12)
+        self.assertFalse(cfg["train"]["auto_tune"])
+        self.assertTrue(cfg["train"]["amp"])
+        self.assertFalse(cfg["augment"]["enabled"])
+        self.assertEqual(cfg["augment"]["mosaic"], 0.25)
+        self.assertEqual(cfg["model"]["profile"], "nova")
+        self.assertEqual(cfg["model"]["display_name"], "Nova")
+        self.assertEqual(cfg["model"]["stem_channels"], 24)
+        self.assertEqual(cfg["logging"]["out_dir"], "runs/cli_override_test")
+        self.assertEqual(summary["model_profile"], "nova")
+        self.assertEqual(summary["model_display_name"], "Nova")
+        self.assertEqual(summary["out_dir"], "runs/cli_override_test")
+
+    def test_plan_smart_retry_disables_amp_after_amp_instability(self) -> None:
+        yaml_path = self._create_dataset_yaml()
+        fake_props = SimpleNamespace(name="Tiny GPU", total_memory=2 * 1024 ** 3, major=7, minor=5)
+
+        with (
+            mock.patch("utils.auto_train_config.torch.cuda.is_available", return_value=True),
+            mock.patch("utils.auto_train_config.torch.cuda.get_device_properties", return_value=fake_props),
+            mock.patch("utils.auto_train_config.torch.cuda.is_bf16_supported", return_value=False),
+        ):
+            cfg, _ = resolve_training_config(None, str(yaml_path))
+
+        cfg["train"]["amp"] = True
+        cfg["logging"]["out_dir"] = "runs/retry_test"
+        cfg["smart_training"]["base_out_dir"] = cfg["logging"]["out_dir"]
+        retry_plan = plan_smart_retry(cfg, "amp_instability", "amp failure", attempt_index=1)
+
+        self.assertIsNotNone(retry_plan)
+        retry_cfg, retry_info = retry_plan
+        self.assertFalse(retry_cfg["train"]["amp"])
+        self.assertEqual(retry_info["next_attempt"], 2)
+        self.assertTrue(retry_cfg["logging"]["out_dir"].endswith("retry02"))
+
+    def test_plan_smart_retry_reduces_batch_size_for_oom(self) -> None:
+        yaml_path = self._create_dataset_yaml()
+        fake_props = SimpleNamespace(name="Tiny GPU", total_memory=4 * 1024 ** 3, major=7, minor=5)
+
+        with (
+            mock.patch("utils.auto_train_config.torch.cuda.is_available", return_value=True),
+            mock.patch("utils.auto_train_config.torch.cuda.get_device_properties", return_value=fake_props),
+            mock.patch("utils.auto_train_config.torch.cuda.is_bf16_supported", return_value=False),
+        ):
+            cfg, _ = resolve_training_config(None, str(yaml_path))
+
+        cfg["train"]["batch_size"] = 4
+        cfg["train"]["grad_accum"] = 2
+        cfg["logging"]["out_dir"] = "runs/retry_test"
+        cfg["smart_training"]["base_out_dir"] = cfg["logging"]["out_dir"]
+        retry_plan = plan_smart_retry(cfg, "oom", "CUDA out of memory", attempt_index=1)
+
+        self.assertIsNotNone(retry_plan)
+        retry_cfg, retry_info = retry_plan
+        self.assertEqual(retry_cfg["train"]["batch_size"], 2)
+        self.assertEqual(retry_cfg["train"]["grad_accum"], 4)
+        self.assertEqual(retry_cfg["train"]["num_workers"], 0)
+        self.assertIn("batch_size 4->2", retry_info["changes"])
+
+    def test_resolve_training_config_preserves_explicit_epoch_override(self) -> None:
+        yaml_path = self._create_dataset_yaml()
+        config_path = self.temp_path / "explicit_epochs.yaml"
+        config_path.write_text(
+            yaml.safe_dump(
+                {
+                    "train": {
+                        "epochs": 5,
+                        "warmup_epochs": 2,
+                    },
+                    "logging": {
+                        "out_dir": "runs/explicit_epochs_test",
+                    },
+                }
+            ),
+            encoding="utf-8",
+        )
+        fake_props = SimpleNamespace(name="Tiny GPU", total_memory=4 * 1024 ** 3, major=7, minor=5)
+
+        with (
+            mock.patch("utils.auto_train_config.torch.cuda.is_available", return_value=True),
+            mock.patch("utils.auto_train_config.torch.cuda.get_device_properties", return_value=fake_props),
+            mock.patch("utils.auto_train_config.torch.cuda.is_bf16_supported", return_value=False),
+        ):
+            cfg, summary = resolve_training_config(str(config_path), str(yaml_path))
+
+        self.assertEqual(cfg["train"]["epochs"], 5)
+        self.assertEqual(cfg["train"]["warmup_epochs"], 1)
+        self.assertEqual(cfg["logging"]["out_dir"], "runs/explicit_epochs_test")
+        self.assertEqual(summary["out_dir"], "runs/explicit_epochs_test")
+
+
+class TestTrainingAugmentations(unittest.TestCase):
+    """Unit tests for deterministic augmentation behavior."""
+
+    def setUp(self) -> None:
+        temp_root = Path(__file__).resolve().parents[1] / "reports" / "test_tmp"
+        temp_root.mkdir(parents=True, exist_ok=True)
+        self.temp_path = temp_root / "training_augmentations"
+        self.temp_path.mkdir(parents=True, exist_ok=True)
+
+    def test_horizontal_flip_updates_boxes(self) -> None:
+        dataset_root = self.temp_path / "flip_dataset"
+        (dataset_root / "images").mkdir(parents=True, exist_ok=True)
+        (dataset_root / "labels").mkdir(parents=True, exist_ok=True)
+
+        image = np.zeros((100, 100, 3), dtype=np.uint8)
+        image[:, :30] = 255
+        cv2.imwrite(str(dataset_root / "images" / "sample.jpg"), image)
+        (dataset_root / "labels" / "sample.txt").write_text("0 0.25 0.5 0.2 0.4\n", encoding="utf-8")
+
+        dataset = YOLOSegDataset(
+            str(dataset_root),
+            img_size=100,
+            task="detect",
+            auto_detect_task=False,
+            augment=True,
+            augment_cfg={
+                "enabled": True,
+                "hsv_h": 0.0,
+                "hsv_s": 0.0,
+                "hsv_v": 0.0,
+                "fliplr": 1.0,
+                "flipud": 0.0,
+                "translate": 0.0,
+                "scale": 0.0,
+            },
+        )
+
+        _, target = dataset[0]
+        box = target["boxes"][0].tolist()
+
+        self.assertAlmostEqual(box[0], 0.65, places=2)
+        self.assertAlmostEqual(box[2], 0.85, places=2)
+        self.assertEqual(target["task_mode"], "detect")
+
+    def test_mosaic_combines_multiple_sources(self) -> None:
+        dataset_root = self.temp_path / "mosaic_dataset"
+        (dataset_root / "images").mkdir(parents=True, exist_ok=True)
+        (dataset_root / "labels").mkdir(parents=True, exist_ok=True)
+
+        image = np.zeros((64, 64, 3), dtype=np.uint8)
+        for idx in range(4):
+            cv2.imwrite(str(dataset_root / "images" / f"sample_{idx}.jpg"), image)
+            center_x = 0.2 + 0.2 * idx
+            (dataset_root / "labels" / f"sample_{idx}.txt").write_text(
+                f"0 {center_x} 0.5 0.15 0.2\n",
+                encoding="utf-8",
+            )
+
+        dataset = YOLOSegDataset(
+            str(dataset_root),
+            img_size=64,
+            task="detect",
+            auto_detect_task=False,
+            augment=True,
+            augment_cfg={
+                "enabled": True,
+                "mosaic": 1.0,
+                "cutmix": 0.0,
+                "random_cut": 0.0,
+                "hsv_h": 0.0,
+                "hsv_s": 0.0,
+                "hsv_v": 0.0,
+                "fliplr": 0.0,
+                "flipud": 0.0,
+                "translate": 0.0,
+                "scale": 0.0,
+            },
+        )
+
+        np.random.seed(0)
+        with mock.patch("numpy.random.randint", side_effect=[32, 32]):
+            _, target = dataset[0]
+        self.assertGreaterEqual(target["boxes"].shape[0], 2)
+
+    def test_cutmix_can_replace_instance_set(self) -> None:
+        dataset_root = self.temp_path / "cutmix_dataset"
+        (dataset_root / "images").mkdir(parents=True, exist_ok=True)
+        (dataset_root / "labels").mkdir(parents=True, exist_ok=True)
+
+        image = np.zeros((64, 64, 3), dtype=np.uint8)
+        cv2.imwrite(str(dataset_root / "images" / "sample_0.jpg"), image)
+        cv2.imwrite(str(dataset_root / "images" / "sample_1.jpg"), image)
+        (dataset_root / "labels" / "sample_0.txt").write_text("0 0.20 0.20 0.10 0.10\n", encoding="utf-8")
+        (dataset_root / "labels" / "sample_1.txt").write_text("1 0.80 0.80 0.10 0.10\n", encoding="utf-8")
+
+        dataset = YOLOSegDataset(
+            str(dataset_root),
+            img_size=64,
+            task="detect",
+            auto_detect_task=False,
+            augment=True,
+            augment_cfg={
+                "enabled": True,
+                "mosaic": 0.0,
+                "cutmix": 1.0,
+                "random_cut": 0.0,
+                "hsv_h": 0.0,
+                "hsv_s": 0.0,
+                "hsv_v": 0.0,
+                "fliplr": 0.0,
+                "flipud": 0.0,
+                "translate": 0.0,
+                "scale": 0.0,
+            },
+        )
+
+        with mock.patch("numpy.random.randint", side_effect=[1, 45, 45]):
+            with mock.patch("numpy.random.uniform", return_value=0.25):
+                _, target = dataset[0]
+
+        labels = sorted(target["labels"].tolist())
+        self.assertIn(1, labels)
+
+
+if __name__ == "__main__":
+    unittest.main()
