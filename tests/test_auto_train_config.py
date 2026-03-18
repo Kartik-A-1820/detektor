@@ -12,6 +12,7 @@ import numpy as np
 import yaml
 
 from datasets.yolo_seg import YOLOSegDataset
+from tests import get_test_tmp_root
 from utils.auto_train_config import plan_smart_retry, resolve_training_config
 from utils.data_config import load_dataset_yaml
 
@@ -20,7 +21,7 @@ class TestAutoTrainConfig(unittest.TestCase):
     """Unit tests for hardware-aware training config resolution."""
 
     def setUp(self) -> None:
-        temp_root = Path(__file__).resolve().parents[1] / "reports" / "test_tmp"
+        temp_root = get_test_tmp_root()
         temp_root.mkdir(parents=True, exist_ok=True)
         self.temp_path = temp_root / "auto_train_config"
         self.temp_path.mkdir(parents=True, exist_ok=True)
@@ -280,7 +281,7 @@ class TestTrainingAugmentations(unittest.TestCase):
     """Unit tests for deterministic augmentation behavior."""
 
     def setUp(self) -> None:
-        temp_root = Path(__file__).resolve().parents[1] / "reports" / "test_tmp"
+        temp_root = get_test_tmp_root()
         temp_root.mkdir(parents=True, exist_ok=True)
         self.temp_path = temp_root / "training_augmentations"
         self.temp_path.mkdir(parents=True, exist_ok=True)

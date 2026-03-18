@@ -12,6 +12,7 @@ import cv2
 import numpy as np
 import torch
 
+from tests import make_test_temp_dir
 from utils.reporting import generate_metrics_summary, plot_epoch_metrics
 
 
@@ -20,7 +21,7 @@ class TestIntegration(unittest.TestCase):
 
     def setUp(self) -> None:
         """Set up test fixtures."""
-        self.temp_dir = tempfile.mkdtemp()
+        self.temp_dir = make_test_temp_dir(prefix="integration_")
 
     def test_tiny_inference_run(self) -> None:
         """Test a minimal inference run with a tiny model."""

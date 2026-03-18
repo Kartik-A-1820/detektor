@@ -6,6 +6,7 @@ from pathlib import Path
 import torch
 
 from models.factory import build_model_from_checkpoint, load_model_weights
+from tests import get_test_tmp_root
 from utils.checkpoints import build_checkpoint_payload, save_checkpoint
 
 
@@ -53,7 +54,7 @@ class CheckpointTests(unittest.TestCase):
         model = ChimeraODIS(num_classes=2, proto_k=16)
         cfg = {"model": {"profile": "firefly", "proto_k": 16}, "data": {"num_classes": 2}}
 
-        tmp_dir = Path("reports/test_tmp/test_checkpoints")
+        tmp_dir = get_test_tmp_root() / "test_checkpoints"
         tmp_dir.mkdir(parents=True, exist_ok=True)
         checkpoint_path = tmp_dir / "model.pt"
         save_checkpoint(checkpoint_path, model, config=cfg)

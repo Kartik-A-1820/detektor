@@ -10,6 +10,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
+from tests import make_test_temp_dir
 from utils.reporting import (
     generate_metrics_summary,
     load_epoch_summaries,
@@ -28,7 +29,7 @@ class TestReporting(unittest.TestCase):
     
     def setUp(self):
         """Set up test fixtures."""
-        self.temp_dir = tempfile.mkdtemp()
+        self.temp_dir = make_test_temp_dir(prefix="reporting_")
         self.temp_path = Path(self.temp_dir)
         
         # Create sample training metrics

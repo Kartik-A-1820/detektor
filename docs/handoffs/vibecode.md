@@ -502,12 +502,11 @@ Context:
 - the current observed status is:
   - README now reflects the real maturity level
   - the repo is structurally strong for local experimentation
-  - the full automated suite is currently not green
+  - the full automated suite is green in the current environment
   - the major technical gaps are:
     - model quality and recall
-    - test/code contract drift
-    - reporting robustness on sparse inputs
-    - environment-sensitive temp/report path failures
+    - live serving verification against a real trained run
+    - deployment-path verification gaps such as Docker
 
 Execution rules for Project Z:
 - every new Story or Bug must be logged in this file before implementation starts
@@ -557,48 +556,75 @@ Items:
 Goal:
 - make the automated suite trustworthy again before deeper optimization work
 
+Status:
+- completed
+
 Items:
 - `Z-2` `Bug` - Restore missing `compute_ap50` compatibility path used by integration and regression tests
+  - status: fixed
   - problem:
     - tests import `compute_ap50` but `utils.metrics_helpers` currently exposes `compute_ap50_95`
   - target outcome:
     - restore a stable `compute_ap50` API or update all call sites behind a deliberate compatibility decision
+  - files changed:
+    - `utils/metrics_helpers.py`
   - verification:
-    - targeted metrics helper, integration, and regression tests pass
+    - `./.venv/Scripts/python.exe -m unittest tests.test_metrics_helpers tests.test_integration tests.test_regression`
+  - observed result:
+    - compatibility import restored and targeted metrics helper, integration, and regression tests pass
 
 - `Z-3` `Bug` - Resolve API schema drift in `PredictionResponse` and `MetricsResponse`
+  - status: fixed
   - problem:
     - schema expectations in tests no longer match current Pydantic models
   - target outcome:
     - decide and enforce one stable contract for:
       - legacy mask field handling
       - metrics response field names and required keys
+  - files changed:
+    - `api/schemas.py`
   - verification:
-    - `tests.test_schemas`
-    - `tests.test_regression`
-    - `tests.test_api`
+    - `./.venv/Scripts/python.exe -m unittest tests.test_schemas tests.test_regression tests.test_api`
+  - observed result:
+    - prediction masks now accept legacy null entries and metrics responses expose stable legacy plus current field names
 
 - `Z-4` `Bug` - Harden reporting utilities against sparse and minimal data
+  - status: fixed
   - problem:
     - `generate_metrics_summary` assumes `epoch_loss` exists and fails on reduced dataframes
   - target outcome:
     - reporting gracefully degrades when expected columns are missing
+  - files changed:
+    - `utils/reporting.py`
   - verification:
-    - `tests.test_reporting`
-    - reporting-related integration tests
+    - `./.venv/Scripts/python.exe -m unittest tests.test_reporting tests.test_integration`
+  - observed result:
+    - reporting now tolerates `avg_loss`-only epoch data and missing optional columns without producing crashes or NaN payloads
 
 - `Z-5` `Bug` - Eliminate environment-sensitive temp/output path failures in dataset-validation and reporting tests
+  - status: fixed
   - problem:
     - many failures appear tied to temp/report directory permissions and inconsistent writable roots
   - target outcome:
     - test helpers and runtime utilities use deterministic writable temp locations in this environment
+  - files changed:
+    - `tests/__init__.py`
+    - `tests/test_auto_train_config.py`
+    - `tests/test_checkpoints.py`
+    - `tests/test_dataset_validation.py`
+    - `tests/test_integration.py`
+    - `tests/test_reporting.py`
   - verification:
-    - dataset-validation and reporting test groups pass without manual cleanup
+    - `./.venv/Scripts/python.exe -m unittest tests.test_dataset_validation tests.test_reporting tests.test_integration`
+    - `./.venv/Scripts/python.exe -m unittest discover -s tests -p "test_*.py"`
+  - observed result:
+    - tests now use a repo-local deterministic temp root and the full unittest suite passes without manual cleanup
 
 Phase 1 exit criteria:
 - the previously failing test groups are green
 - the full unit/integration/regression suite is either green or reduced to explicitly documented, reproducible blockers
 - all remaining failures, if any, are logged here with owner and reason
+- status: satisfied
 
 ### Phase 2: Serving And Contract Stabilization
 

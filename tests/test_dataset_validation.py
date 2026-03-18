@@ -11,6 +11,7 @@ import cv2
 import numpy as np
 
 from check_dataset import print_summary
+from tests import make_test_temp_dir
 from utils.dataset_validation import (
     DatasetStats,
     ValidationIssue,
@@ -29,9 +30,7 @@ class TestDatasetValidation(unittest.TestCase):
 
     def setUp(self) -> None:
         """Set up test fixtures."""
-        temp_root = Path(__file__).resolve().parents[1] / "reports" / "test_tmp"
-        temp_root.mkdir(parents=True, exist_ok=True)
-        self.temp_dir = tempfile.mkdtemp(dir=str(temp_root))
+        self.temp_dir = make_test_temp_dir(prefix="dataset_validation_")
         self.temp_path = Path(self.temp_dir)
 
     def create_test_image(self, path: Path, width: int = 100, height: int = 100) -> None:
@@ -326,9 +325,7 @@ class TestDatasetValidationIntegration(unittest.TestCase):
 
     def setUp(self) -> None:
         """Set up test fixtures."""
-        temp_root = Path(__file__).resolve().parents[1] / "reports" / "test_tmp"
-        temp_root.mkdir(parents=True, exist_ok=True)
-        self.temp_dir = tempfile.mkdtemp(dir=str(temp_root))
+        self.temp_dir = make_test_temp_dir(prefix="dataset_validation_integration_")
         self.temp_path = Path(self.temp_dir)
 
     def create_fake_dataset(self) -> Path:
@@ -394,7 +391,7 @@ class TestDatasetValidationIntegration(unittest.TestCase):
 
         # Verify we have the expected files
         image_files = list(train_images.glob("*.jpg"))
-        self.assertEqual(len(image_files), 5)  # 3 valid + 1 missing label + 1 corrupt
+        self.assertEqual(len(image_files), 6)  # 3 valid + 1 missing label + 1 corrupt + 1 invalid class
 
         label_files = list(train_labels.glob("*.txt"))
         self.assertEqual(len(label_files), 4)  # 3 valid + 1 invalid class
