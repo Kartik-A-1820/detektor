@@ -490,3 +490,223 @@ Current state:
 - the UI can inspect a training run and infer on images without manually wiring class maps or plot paths
 - `best` vs `last` is now a runtime choice instead of a restart-time choice
 - next work on serving should focus on live UX polish and real-model browser validation, not basic plumbing
+
+## Project Z Operating Plan
+
+Date:
+- March 18, 2026
+
+Context:
+- this repository now enters a structured remediation and optimization phase under the name `Project Z`
+- the immediate trigger was a full code-and-status review against the actual repository state
+- the current observed status is:
+  - README now reflects the real maturity level
+  - the repo is structurally strong for local experimentation
+  - the full automated suite is currently not green
+  - the major technical gaps are:
+    - model quality and recall
+    - test/code contract drift
+    - reporting robustness on sparse inputs
+    - environment-sensitive temp/report path failures
+
+Execution rules for Project Z:
+- every new Story or Bug must be logged in this file before implementation starts
+- IDs must use the format `Z-1`, `Z-2`, `Z-3`, ...
+- each item must clearly say whether it is a `Story` or a `Bug`
+- when an item is completed, its entry in this file must be updated to `fixed`
+- when an item is completed, create a git commit whose title starts with the item ID, for example:
+  - `Z-7 Fix metrics helper compatibility for regression tests`
+- this file is the canonical working log for Stories, Bugs, decisions, verification notes, and status changes for Project Z
+- do not treat generated outputs in `artifacts/`, `reports/`, or ad hoc `runs/` directories as source changes unless explicitly requested
+
+Project Z phases:
+
+### Phase 0: Governance, Baseline, And Tracking
+
+Goal:
+- establish a strict execution model so future work is incremental, auditable, and tied to verification
+
+Items:
+- `Z-1` `Story` - Establish Project Z remediation plan, tracking format, and commit protocol in `vibecode.md`
+  - status: fixed
+  - scope:
+    - create phased plan
+    - define Story/Bug numbering
+    - define completion and commit rules
+    - declare `vibecode.md` as the canonical work log
+  - verification:
+    - this section added to `docs/handoffs/vibecode.md`
+  - completion note:
+    - fixed by documenting the Project Z operating model and phased backlog in this file
+
+### Phase 1: Rebuild The Engineering Safety Net
+
+Goal:
+- make the automated suite trustworthy again before deeper optimization work
+
+Items:
+- `Z-2` `Bug` - Restore missing `compute_ap50` compatibility path used by integration and regression tests
+  - problem:
+    - tests import `compute_ap50` but `utils.metrics_helpers` currently exposes `compute_ap50_95`
+  - target outcome:
+    - restore a stable `compute_ap50` API or update all call sites behind a deliberate compatibility decision
+  - verification:
+    - targeted metrics helper, integration, and regression tests pass
+
+- `Z-3` `Bug` - Resolve API schema drift in `PredictionResponse` and `MetricsResponse`
+  - problem:
+    - schema expectations in tests no longer match current Pydantic models
+  - target outcome:
+    - decide and enforce one stable contract for:
+      - legacy mask field handling
+      - metrics response field names and required keys
+  - verification:
+    - `tests.test_schemas`
+    - `tests.test_regression`
+    - `tests.test_api`
+
+- `Z-4` `Bug` - Harden reporting utilities against sparse and minimal data
+  - problem:
+    - `generate_metrics_summary` assumes `epoch_loss` exists and fails on reduced dataframes
+  - target outcome:
+    - reporting gracefully degrades when expected columns are missing
+  - verification:
+    - `tests.test_reporting`
+    - reporting-related integration tests
+
+- `Z-5` `Bug` - Eliminate environment-sensitive temp/output path failures in dataset-validation and reporting tests
+  - problem:
+    - many failures appear tied to temp/report directory permissions and inconsistent writable roots
+  - target outcome:
+    - test helpers and runtime utilities use deterministic writable temp locations in this environment
+  - verification:
+    - dataset-validation and reporting test groups pass without manual cleanup
+
+Phase 1 exit criteria:
+- the previously failing test groups are green
+- the full unit/integration/regression suite is either green or reduced to explicitly documented, reproducible blockers
+- all remaining failures, if any, are logged here with owner and reason
+
+### Phase 2: Serving And Contract Stabilization
+
+Goal:
+- make local serving reliable and contract-stable once the base test suite is trustworthy
+
+Items:
+- `Z-6` `Story` - Define and lock the public local API contract
+  - scope:
+    - version the response contract deliberately
+    - document compatibility expectations for legacy fields
+    - align server responses, schemas, and tests
+  - verification:
+    - API tests pass
+    - docs and implementation match
+
+- `Z-7` `Bug` - Validate integrated UI and runtime checkpoint switching against a real trained run
+  - problem:
+    - current handoff says UI construction is verified, but not a full live browser flow against a real model
+  - target outcome:
+    - verify upload flow, folder inference, plot display, and checkpoint switching end to end
+  - verification:
+    - live manual verification notes recorded in this file
+    - any discovered issues logged as new `Z-*` Bugs
+
+Phase 2 exit criteria:
+- local API responses are stable and documented
+- mounted UI workflow is verified with a real run, not just construction tests
+
+### Phase 3: Training Quality And Model Performance
+
+Goal:
+- improve actual model quality now that the engineering substrate is reliable
+
+Items:
+- `Z-8` `Story` - Audit current training signal quality and failure modes on `F:/data/data.yaml`
+  - scope:
+    - inspect class balance, target quality, assignment behavior, and current validation curves
+    - identify the dominant cause of low recall
+  - verification:
+    - written diagnostic summary in this file
+    - reproducible metrics baseline captured
+
+- `Z-9` `Story` - Improve recall through target-assignment and head/loss calibration changes
+  - scope:
+    - investigate assignment thresholds, positive matching behavior, confidence calibration, and loss weighting
+  - verification:
+    - controlled before/after run comparison
+    - metrics logged here with absolute run paths
+
+- `Z-10` `Story` - Run longer controlled experiments after calibration changes
+  - scope:
+    - compare short smoke runs and longer verification runs
+    - confirm whether improvements hold past early epochs
+  - verification:
+    - epoch-by-epoch metrics summary recorded here
+    - selected best checkpoint and rationale documented
+
+Phase 3 exit criteria:
+- recall and mAP improve materially on the active dataset
+- improvements are reproducible, not anecdotal
+- checkpoint selection and validation reports agree
+
+### Phase 4: Deployment Readiness For Local Use
+
+Goal:
+- verify the practical delivery paths that are documented today
+
+Items:
+- `Z-11` `Bug` - Verify Docker workflow when Docker becomes available
+  - problem:
+    - docs mention Docker, but this machine has not verified it
+  - target outcome:
+    - either verify Docker end to end or downgrade/remove unsupported claims
+  - verification:
+    - exact command log and result recorded here
+
+- `Z-12` `Story` - Validate ONNX export and benchmark path against real checkpoints
+  - scope:
+    - export a real model
+    - confirm output usability and benchmark path correctness
+  - verification:
+    - commands, artifacts, and benchmark summary logged here
+
+Phase 4 exit criteria:
+- documented deployment/export flows are verified or explicitly downgraded in docs
+
+### Phase 5: Release Readiness Review
+
+Goal:
+- decide whether the project can honestly claim release-candidate quality for local use
+
+Items:
+- `Z-13` `Story` - Produce final Project Z readiness review
+  - scope:
+    - summarize fixed bugs
+    - summarize remaining technical debt
+    - classify the repo as:
+      - internal prototype
+      - local-use release candidate
+      - or production-ready for narrow use
+  - verification:
+    - final assessment written here and reflected in public docs as needed
+
+Phase 5 exit criteria:
+- project claims match verified evidence
+- unresolved risks are explicitly documented
+
+Backlog management notes:
+- if new defects are discovered during any phase, add them here immediately as the next available `Z-*` item
+- bugs should reference the failing test, command, endpoint, or runtime path that exposed them
+- stories should define a measurable before/after outcome, not just an implementation idea
+- each completed item must include:
+  - status
+  - files changed
+  - verification command(s)
+  - observed result
+
+Current priority order:
+1. `Z-2`
+2. `Z-3`
+3. `Z-4`
+4. `Z-5`
+5. `Z-8`
