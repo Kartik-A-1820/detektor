@@ -73,6 +73,24 @@
     - standalone validation improved overall recall from `0.2913` to `0.4310` and AP50 from `0.2363` to `0.3543`
     - precision dropped from `0.7808` to `0.6156`
     - per-class recall is still `0.0000` for `ball`, `goalkeeper`, and `referee`; gains are currently isolated to `player`
+- Latest training-time validation hook verification: `2026-03-18`
+  - fix scope:
+    - `train.py --run-val` now writes `chimera_last.pt` before each in-loop validation, so epoch 1 validates a real checkpoint on fresh runs
+    - loss calibration settings can now be carried through the existing config `loss:` section for controlled Phase 3 probes
+  - targeted unittest verification:
+    - `.\.venv\Scripts\python.exe -m unittest tests.test_smart_training tests.test_checkpoints`
+    - result: `6` passed
+  - fresh run verification:
+    - command:
+      - `.\.venv\Scripts\python.exe train.py --config runs/refactor_verify_5epoch/resolved_train_config.yaml --data-yaml F:/data/data.yaml --device cuda --img-size 512 --epochs 1 --batch-size 4 --grad-accum 2 --lr 0.002 --num-workers 0 --vram-cap 0.8 --no-maximize-batch-size --out-dir runs/z14_runval_epoch1_verify --run-val --val-freq 1`
+    - artifacts:
+      - `F:/detektor/runs/z14_runval_epoch1_verify/chimera_last.pt`
+      - `F:/detektor/runs/z14_runval_epoch1_verify/val_metrics.jsonl`
+      - `F:/detektor/runs/z14_runval_epoch1_verify/epoch_summaries.jsonl`
+    - verified evidence:
+      - epoch 1 validation ran inline without a missing-checkpoint warning
+      - `runs/z14_runval_epoch1_verify/val_metrics.jsonl` records `{"epoch": 1, "val_precision": 0.0, "val_recall": 0.0, "val_map50": 0.0, "val_mean_iou": 0.0}`
+      - `runs/z14_runval_epoch1_verify/epoch_summaries.jsonl` includes the epoch 1 validation fields on a fresh run
 - Main remaining risks:
   - model quality and recall outside the dominant `player` class
   - deployment-path verification gaps such as Docker
@@ -104,12 +122,22 @@ Items:
     - training run: `F:/detektor/runs/z9_assigner_fallback_objfloor_5epoch`
     - standalone validation artifacts: `F:/detektor/runs/z9_assigner_fallback_objfloor_5epoch_validate`
     - result: precision `0.6781`, recall `0.2692`, AP50 `0.1878`
+    - `2026-03-18`: calibration-focused loss weighting probe with `loss.cls_weight=1.0`, `loss.obj_weight=0.5`, `loss.label_smoothing=0.05`
+    - config: `F:/detektor/runs/z9_calibration_probe_5epoch_config.yaml`
+    - training run: `F:/detektor/runs/z9_calibration_probe_5epoch`
+    - standalone validation artifacts: `F:/detektor/runs/z9_calibration_probe_5epoch_validate`
+    - commands:
+      - `.\.venv\Scripts\python.exe train.py --config runs/z9_calibration_probe_5epoch_config.yaml --data-yaml F:/data/data.yaml --device cuda --img-size 512 --epochs 5 --batch-size 4 --grad-accum 2 --lr 0.002 --num-workers 0 --vram-cap 0.8 --no-maximize-batch-size --out-dir runs/z9_calibration_probe_5epoch --run-val --val-freq 1`
+      - `.\.venv\Scripts\python.exe validate.py --weights runs/z9_calibration_probe_5epoch/chimera_best.pt --data-yaml F:/data/data.yaml --output-dir runs/z9_calibration_probe_5epoch_validate`
+    - result versus current best `runs/z9_effective_box_5epoch_validate`:
+      - standalone validation: precision `0.5778` vs `0.6156`, recall `0.4966` vs `0.4310`, AP50 `0.3530` vs `0.3543`, mean box IoU `0.6835` vs `0.6754`
+      - `per_class_metrics.csv` still shows `0.0000` recall for `ball`, `goalkeeper`, and `referee`
+      - `player` recall improved from `0.5200` to `0.5992`, but that does not clear the minority-class gate
   - next-agent execution order:
-    - first, fix `Z-14` so every fresh `--run-val` training run records a valid epoch-1 checkpoint evaluation
-    - second, keep the current assigner change as the baseline and do not revert it unless a new controlled probe beats `runs/z9_effective_box_5epoch_validate`
-    - third, run one calibration-focused probe that targets class discrimination rather than assignment count
-    - recommended first probe: minority-class-aware classification/objectness weighting or thresholding that is measured against per-class recall, not just aggregate AP50
-    - avoid starting long runs until a 5-epoch probe produces non-zero recall for at least one of `ball`, `goalkeeper`, or `referee`
+    - first, keep the current assigner change as the baseline and do not revert it unless a new controlled probe beats `runs/z9_effective_box_5epoch_validate` and clears the minority-class gate
+    - second, prioritize changes that can create non-zero recall for at least one of `ball`, `goalkeeper`, or `referee`
+    - third, use `per_class_metrics.csv` as a hard promotion gate, not just aggregate AP50
+    - do not start `Z-10` until a 5-epoch probe produces non-zero standalone validation recall for at least one currently dead minority class
   - exit criteria:
     - materially better recall and AP50 than the Z-8 baseline
     - non-zero standalone validation recall for at least one currently dead minority class
@@ -125,6 +153,7 @@ Items:
     - confirm gains persist past early epochs without minority-class regression
   - entry gate:
     - do not start from a candidate that improves only aggregate `player` metrics while leaving `ball`, `goalkeeper`, and `referee` at `0.0000` recall
+    - current status `2026-03-18`: blocked; latest 5-epoch calibration probe kept all minority-class recalls at `0.0000`
   - target outcome:
     - stable longer-run improvement, not a short-run artifact
     - checkpoint choice backed by both aggregate metrics and per-class recall
@@ -132,14 +161,6 @@ Items:
     - epoch-by-epoch metrics summary recorded here
     - selected checkpoint and rationale documented here
     - standalone validation artifacts for the long run recorded here
-
-- `Z-14` `Bug` - Fix training-time validation hook ordering for fresh runs
-  - problem:
-    - `train.py --run-val` attempts validation at epoch 1 before `runs/.../chimera_last.pt` exists, producing a missing-file warning and skipping the first validation point
-  - target outcome:
-    - every requested validation epoch evaluates a real checkpoint without relying on a prior run artifact
-  - verification:
-    - fresh `--run-val` training run records epoch-1 validation metrics without a missing-file warning
 
 - `Z-15` `Story` - Add per-class Phase 3 promotion gates to validation reporting
   - problem:
@@ -201,10 +222,9 @@ Phase 5 exit:
 
 ## Priority Order
 
-1. `Z-14`
-2. `Z-9`
-3. `Z-15`
-4. `Z-10`
-5. `Z-11`
-6. `Z-12`
-7. `Z-13`
+1. `Z-9`
+2. `Z-15`
+3. `Z-10`
+4. `Z-11`
+5. `Z-12`
+6. `Z-13`

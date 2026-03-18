@@ -523,7 +523,23 @@ def _train_once(
             selection_metric = epoch_loss_avg
             is_best = selection_metric < best_metric if best_metric_mode == "train_loss" else False
 
+            save_checkpoint(
+                checkpoint_path=last_checkpoint_path,
+                model=model,
+                optimizer=optimizer,
+                scaler=scaler,
+                scheduler=scheduler,
+                epoch=epoch,
+                global_step=global_step,
+                best_metric=best_metric,
+                config=cfg,
+                ema_state=ema.state_dict() if ema is not None else None,
+                is_best=False,
+                best_checkpoint_path=best_checkpoint_path,
+            )
+
             val_log = None
+            checkpoint_updated_after_val = False
             if run_val and (epoch + 1) % val_freq == 0:
                 print(f"\nRunning validation at epoch {epoch + 1}...")
                 try:
@@ -546,6 +562,23 @@ def _train_once(
                     }
                     selection_metric = float(val_log["val_map50"])
                     is_best = selection_metric > best_metric
+                    if is_best:
+                        best_metric = selection_metric
+                    save_checkpoint(
+                        checkpoint_path=last_checkpoint_path,
+                        model=model,
+                        optimizer=optimizer,
+                        scaler=scaler,
+                        scheduler=scheduler,
+                        epoch=epoch,
+                        global_step=global_step,
+                        best_metric=best_metric,
+                        config=cfg,
+                        ema_state=ema.state_dict() if ema is not None else None,
+                        is_best=is_best,
+                        best_checkpoint_path=best_checkpoint_path,
+                    )
+                    checkpoint_updated_after_val = True
                     append_jsonl(out_dir / "val_metrics.jsonl", val_log)
                     print(
                         f"Validation: P={val_log['val_precision']:.3f} "
@@ -554,23 +587,22 @@ def _train_once(
                 except Exception as error:
                     print(f"warning: validation failed: {error}")
 
-            if is_best:
+            if is_best and not checkpoint_updated_after_val:
                 best_metric = selection_metric
-
-            save_checkpoint(
-                checkpoint_path=last_checkpoint_path,
-                model=model,
-                optimizer=optimizer,
-                scaler=scaler,
-                scheduler=scheduler,
-                epoch=epoch,
-                global_step=global_step,
-                best_metric=best_metric,
-                config=cfg,
-                ema_state=ema.state_dict() if ema is not None else None,
-                is_best=is_best,
-                best_checkpoint_path=best_checkpoint_path,
-            )
+                save_checkpoint(
+                    checkpoint_path=last_checkpoint_path,
+                    model=model,
+                    optimizer=optimizer,
+                    scaler=scaler,
+                    scheduler=scheduler,
+                    epoch=epoch,
+                    global_step=global_step,
+                    best_metric=best_metric,
+                    config=cfg,
+                    ema_state=ema.state_dict() if ema is not None else None,
+                    is_best=True,
+                    best_checkpoint_path=best_checkpoint_path,
+                )
 
             epoch_summary = {
                 "epoch": epoch + 1,

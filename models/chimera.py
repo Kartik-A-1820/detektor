@@ -36,6 +36,7 @@ class ChimeraODIS(nn.Module):
         neck_channels: Tuple[int, int, int] = (128, 192, 256),
         head_feat_channels: int = 128,
         mask_weight: float = 1.0,
+        detection_loss_cfg: Dict[str, Any] | None = None,
     ) -> None:
         super().__init__()
         self.num_classes = num_classes
@@ -60,9 +61,14 @@ class ChimeraODIS(nn.Module):
             hidden_channels=max(neck_channels[0] // 2, 64),
             proto_k=proto_k,
         )
+        detection_loss_cfg = dict(detection_loss_cfg or {})
         self.detection_loss = DetectionLoss(
             num_classes=num_classes,
-            label_smoothing=0.0,  # Can be tuned for stability (0.0-0.1)
+            cls_weight=float(detection_loss_cfg.get("cls_weight", 0.5)),
+            box_weight=float(detection_loss_cfg.get("box_weight", 7.5)),
+            obj_weight=float(detection_loss_cfg.get("obj_weight", 1.0)),
+            center_radius=float(detection_loss_cfg.get("center_radius", 2.5)),
+            label_smoothing=float(detection_loss_cfg.get("label_smoothing", 0.0)),
         )
         self.segmentation_loss = SegmentationLoss()
         self.mask_weight = mask_weight

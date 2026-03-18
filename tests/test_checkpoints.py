@@ -5,7 +5,7 @@ from pathlib import Path
 
 import torch
 
-from models.factory import build_model_from_checkpoint, load_model_weights
+from models.factory import build_model_from_checkpoint, build_model_from_config, load_model_weights
 from tests import get_test_tmp_root
 from utils.checkpoints import build_checkpoint_payload, save_checkpoint
 
@@ -64,6 +64,27 @@ class CheckpointTests(unittest.TestCase):
         self.assertIn("model_config", payload)
         self.assertEqual(payload["model_config"]["profile"], "firefly")
         self.assertEqual(payload["model_config"]["num_classes"], 2)
+
+    def test_build_model_from_config_applies_detection_loss_overrides(self) -> None:
+        cfg = {
+            "model": {"profile": "firefly", "proto_k": 16},
+            "data": {"num_classes": 2},
+            "loss": {
+                "cls_weight": 1.0,
+                "box_weight": 7.0,
+                "obj_weight": 0.5,
+                "center_radius": 3.0,
+                "label_smoothing": 0.05,
+            },
+        }
+
+        model = build_model_from_config(cfg)
+
+        self.assertAlmostEqual(model.detection_loss.cls_weight, 1.0, places=6)
+        self.assertAlmostEqual(model.detection_loss.box_weight, 7.0, places=6)
+        self.assertAlmostEqual(model.detection_loss.obj_weight, 0.5, places=6)
+        self.assertAlmostEqual(model.detection_loss.assigner.center_radius, 3.0, places=6)
+        self.assertAlmostEqual(model.detection_loss.label_smoothing, 0.05, places=6)
 
 
 if __name__ == "__main__":

@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import copy
+import tempfile
 import unittest
 from contextlib import ExitStack
+from pathlib import Path
 from unittest import mock
 
 import torch
@@ -193,12 +195,140 @@ class TestSmartTrainingOrchestrator(unittest.TestCase):
                 val_freq=1,
             )
 
-        self.assertEqual(len(checkpoint_calls), 2)
-        self.assertTrue(checkpoint_calls[0]["is_best"])
+        self.assertEqual(len(checkpoint_calls), 4)
+        self.assertFalse(checkpoint_calls[0]["is_best"])
         self.assertTrue(checkpoint_calls[1]["is_best"])
-        self.assertAlmostEqual(checkpoint_calls[0]["best_metric"], 0.10, places=6)
-        self.assertAlmostEqual(checkpoint_calls[1]["best_metric"], 0.25, places=6)
+        self.assertFalse(checkpoint_calls[2]["is_best"])
+        self.assertTrue(checkpoint_calls[3]["is_best"])
+        self.assertAlmostEqual(checkpoint_calls[1]["best_metric"], 0.10, places=6)
+        self.assertAlmostEqual(checkpoint_calls[3]["best_metric"], 0.25, places=6)
         self.assertEqual(summary["best_metric"], 0.25)
+
+    def test_train_once_saves_epoch_checkpoint_before_validation(self) -> None:
+        cfg = copy.deepcopy(DEFAULT_TRAINING_CONFIG)
+        cfg["device"] = "cpu"
+        cfg["train"]["epochs"] = 1
+        cfg["train"]["batch_size"] = 1
+        cfg["train"]["grad_accum"] = 1
+        cfg["train"]["num_workers"] = 0
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            out_dir = Path(tmp_dir) / "run"
+            cfg["logging"]["out_dir"] = str(out_dir)
+            resolved_runtime = {
+                "device": "cpu",
+                "gpu_name": "cpu",
+                "total_vram_gb": 0.0,
+                "resolved_train_root": "train",
+                "resolved_val_root": "val",
+                "img_size": cfg["train"]["img_size"],
+                "batch_size": cfg["train"]["batch_size"],
+                "grad_accum": cfg["train"]["grad_accum"],
+                "effective_batch_size": 1,
+                "lr": cfg["train"]["lr"],
+                "amp": False,
+                "num_workers": 0,
+                "out_dir": cfg["logging"]["out_dir"],
+                "model_profile": cfg["model"]["profile"],
+                "model_display_name": cfg["model"]["display_name"],
+                "augment": copy.deepcopy(cfg["augment"]),
+                "smart_training": copy.deepcopy(cfg["smart_training"]),
+            }
+
+            class DummyDataset:
+                task_mode = "detect"
+
+                def __len__(self):
+                    return 1
+
+            class DummyModel:
+                def __init__(self) -> None:
+                    self.weight = torch.nn.Parameter(torch.tensor(1.0))
+                    self.detection_loss = mock.Mock(current_epoch=0)
+                    self.proto_k = 24
+                    self.num_classes = 1
+                    self.backbone = mock.Mock()
+                    self.backbone.stem.conv.out_channels = 16
+                    self.backbone.stage_channels = (16, 32, 48, 64)
+                    self.backbone.stage_depths = (1, 1, 1, 1)
+                    self.neck = mock.Mock()
+                    self.neck.out_channels = (32, 48, 64)
+                    self.detect_head = mock.Mock()
+                    self.detect_head.feat_channels = 32
+
+                def to(self, device):
+                    return self
+
+                def parameters(self):
+                    return [self.weight]
+
+                def train(self):
+                    return self
+
+                def state_dict(self):
+                    return {"weight": self.weight.detach().clone()}
+
+                def compute_loss(self, imgs, targets, return_dict=False, debug=False, task="detect"):
+                    loss = self.weight * 0 + torch.tensor(1.0, requires_grad=True)
+                    payload = {
+                        "loss_total": loss,
+                        "loss_cls": loss,
+                        "loss_box": loss,
+                        "loss_obj": loss,
+                        "loss_mask": loss * 0,
+                        "loss_mask_bce": loss * 0,
+                        "loss_mask_dice": loss * 0,
+                        "num_fg": loss * 0,
+                        "num_mask_pos": loss * 0,
+                    }
+                    return payload if return_dict else payload["loss_total"]
+
+            model = DummyModel()
+            dummy_batch = [
+                (
+                    torch.zeros((1, 3, 64, 64), dtype=torch.float32),
+                    [{"boxes": torch.zeros((0, 4)), "labels": torch.zeros((0,), dtype=torch.long), "masks": torch.zeros((0, 64, 64))}],
+                )
+            ]
+
+            observed_weights: list[str] = []
+
+            def fake_validate(**kwargs):
+                observed_weights.append(kwargs["weights"])
+                self.assertTrue(Path(kwargs["weights"]).exists())
+                return {"detection": {"precision": 0.1, "recall": 0.1, "ap50": 0.10, "mean_iou": 0.5}}
+
+            with ExitStack() as stack:
+                stack.enter_context(mock.patch("train.set_seed"))
+                stack.enter_context(mock.patch("train.set_vram_cap"))
+                stack.enter_context(mock.patch("train._resolve_device", return_value=torch.device("cpu")))
+                stack.enter_context(mock.patch("train.build_model_from_config", return_value=model))
+                stack.enter_context(mock.patch("train.get_model_info", return_value={"trainable_params": 1}))
+                stack.enter_context(mock.patch("train.build_dataset", return_value=DummyDataset()))
+                stack.enter_context(mock.patch("train._build_train_loader", return_value=dummy_batch))
+                stack.enter_context(mock.patch("train._build_scheduler", return_value=None))
+                stack.enter_context(mock.patch("train.write_resolved_config", return_value=str(out_dir / "resolved.yaml")))
+                stack.enter_context(mock.patch("train._log_resolved_runtime"))
+                stack.enter_context(mock.patch("train.write_json"))
+                stack.enter_context(mock.patch("train.append_metrics_row"))
+                stack.enter_context(mock.patch("train.append_jsonl"))
+                stack.enter_context(mock.patch("train.load_train_metrics", return_value=None))
+                stack.enter_context(mock.patch("train.generate_metrics_summary"))
+                stack.enter_context(mock.patch("train.plot_loss_curves"))
+                stack.enter_context(mock.patch("train.plot_learning_rate"))
+                stack.enter_context(mock.patch("train.plot_epoch_metrics"))
+                stack.enter_context(mock.patch("train.vram_report", return_value=""))
+                stack.enter_context(mock.patch("validate.validate", side_effect=fake_validate))
+                train._train_once(
+                    cfg=cfg,
+                    resolved_runtime=resolved_runtime,
+                    config_path=None,
+                    data_yaml="F:/data/data.yaml",
+                    run_val=True,
+                    val_freq=1,
+                )
+
+            self.assertEqual(observed_weights, [str(out_dir / "chimera_last.pt")])
 
 
 if __name__ == "__main__":

@@ -136,6 +136,7 @@ def resolve_model_config(
 def build_model_from_model_config(model_cfg: Mapping[str, Any], *, num_classes: int) -> ChimeraODIS:
     """Instantiate ChimeraODIS from a resolved model config mapping."""
     resolved = resolve_model_config(model_cfg, num_classes=num_classes)
+    loss_cfg = model_cfg.get("loss", {}) if isinstance(model_cfg.get("loss"), Mapping) else {}
     return ChimeraODIS(
         num_classes=resolved["num_classes"],
         proto_k=resolved["proto_k"],
@@ -144,15 +145,16 @@ def build_model_from_model_config(model_cfg: Mapping[str, Any], *, num_classes: 
         backbone_depths=tuple(resolved["backbone_depths"]),
         neck_channels=tuple(resolved["neck_channels"]),
         head_feat_channels=resolved["head_feat_channels"],
+        detection_loss_cfg=dict(loss_cfg),
     )
 
 
 def build_model_from_config(cfg: Mapping[str, Any]) -> ChimeraODIS:
     """Instantiate ChimeraODIS from the project config payload."""
-    return build_model_from_model_config(
-        cfg.get("model", {}),
-        num_classes=int(cfg["data"]["num_classes"]),
-    )
+    model_cfg = dict(cfg.get("model", {}))
+    if isinstance(cfg.get("loss"), Mapping):
+        model_cfg["loss"] = dict(cfg["loss"])
+    return build_model_from_model_config(model_cfg, num_classes=int(cfg["data"]["num_classes"]))
 
 
 def build_model_from_checkpoint(
