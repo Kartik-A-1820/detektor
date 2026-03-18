@@ -74,6 +74,17 @@ Items:
 - `Z-9` `Story` - Improve recall via target-assignment and head/loss calibration changes
   - scope:
     - investigate assignment thresholds, positive matching, confidence calibration, and loss weighting
+  - current probe status:
+    - tested and rejected on `2026-03-18`: per-GT fallback assignment plus fallback objectness floor `0.2`
+    - training run: `F:/detektor/runs/z9_assigner_fallback_objfloor_5epoch`
+    - standalone validation artifacts: `F:/detektor/runs/z9_assigner_fallback_objfloor_5epoch_validate`
+    - command:
+      - `.\.venv\Scripts\python.exe train.py --config runs/refactor_verify_5epoch/resolved_train_config.yaml --data-yaml F:/data/data.yaml --device cuda --img-size 512 --epochs 5 --batch-size 4 --grad-accum 2 --lr 0.002 --num-workers 0 --vram-cap 0.8 --no-maximize-batch-size --out-dir runs/z9_assigner_fallback_objfloor_5epoch --run-val --val-freq 1`
+      - `.\.venv\Scripts\python.exe validate.py --weights runs/z9_assigner_fallback_objfloor_5epoch/chimera_best.pt --data-yaml F:/data/data.yaml --output-dir runs/z9_assigner_fallback_objfloor_5epoch_validate`
+    - result versus baseline:
+      - baseline standalone validate: precision `0.7808`, recall `0.2913`, AP50 `0.2363`
+      - rejected candidate: precision `0.6781`, recall `0.2692`, AP50 `0.1878`
+      - per-class recall stayed `0.0000` for `ball`, `goalkeeper`, and `referee`, so the candidate did not solve the dominant failure mode
   - target outcome:
     - materially better recall and mAP on controlled comparisons
   - verification:
