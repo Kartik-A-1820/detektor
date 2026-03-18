@@ -14,6 +14,27 @@ import pandas as pd
 from matplotlib.figure import Figure
 
 
+def _first_available_column(df: pd.DataFrame, candidates: List[str]) -> Optional[str]:
+    """Return the first column name that exists in the dataframe."""
+    for column in candidates:
+        if column in df.columns:
+            return column
+    return None
+
+
+def _json_safe_number(value: Any) -> Optional[float]:
+    """Convert numeric values to finite JSON-safe floats."""
+    if value is None:
+        return None
+    try:
+        numeric = float(value)
+    except (TypeError, ValueError):
+        return None
+    if np.isnan(numeric) or np.isinf(numeric):
+        return None
+    return numeric
+
+
 def load_train_metrics(metrics_path: Path) -> Optional[pd.DataFrame]:
     """Load training metrics from CSV or JSONL file.
     
@@ -379,20 +400,29 @@ def generate_metrics_summary(
     # Training summary
     if train_df is not None and not train_df.empty:
         loss_cols = [col for col in train_df.columns if col.startswith("loss_")]
-        summary["training"]["total_steps"] = int(train_df["step"].max())
-        summary["training"]["final_loss"] = float(train_df["loss_total"].iloc[-1]) if "loss_total" in train_df.columns else None
-        summary["training"]["min_loss"] = float(train_df["loss_total"].min()) if "loss_total" in train_df.columns else None
-        summary["training"]["final_lr"] = float(train_df["lr"].iloc[-1]) if "lr" in train_df.columns else None
+        if "step" in train_df.columns:
+            summary["training"]["total_steps"] = int(train_df["step"].max())
+        else:
+            summary["training"]["total_steps"] = int(len(train_df))
+        summary["training"]["final_loss"] = _json_safe_number(train_df["loss_total"].iloc[-1]) if "loss_total" in train_df.columns else None
+        summary["training"]["min_loss"] = _json_safe_number(train_df["loss_total"].min()) if "loss_total" in train_df.columns else None
+        summary["training"]["final_lr"] = _json_safe_number(train_df["lr"].iloc[-1]) if "lr" in train_df.columns else None
         
         # Average loss components
         for col in loss_cols:
-            summary["training"][f"avg_{col}"] = float(train_df[col].mean())
+            summary["training"][f"avg_{col}"] = _json_safe_number(train_df[col].mean())
     
     # Epoch summary
     if epoch_df is not None and not epoch_df.empty:
-        summary["training"]["total_epochs"] = int(epoch_df["epoch"].max())
-        summary["training"]["best_epoch"] = int(epoch_df.loc[epoch_df["epoch_loss"].idxmin(), "epoch"])
-        summary["training"]["best_epoch_loss"] = float(epoch_df["epoch_loss"].min())
+        if "epoch" in epoch_df.columns:
+            summary["training"]["total_epochs"] = int(epoch_df["epoch"].max())
+        else:
+            summary["training"]["total_epochs"] = int(len(epoch_df))
+        epoch_loss_column = _first_available_column(epoch_df, ["epoch_loss", "avg_loss", "loss_total"])
+        if epoch_loss_column is not None and "epoch" in epoch_df.columns:
+            best_idx = epoch_df[epoch_loss_column].idxmin()
+            summary["training"]["best_epoch"] = int(epoch_df.loc[best_idx, "epoch"])
+            summary["training"]["best_epoch_loss"] = _json_safe_number(epoch_df[epoch_loss_column].min())
     
     # Validation summary
     if val_metrics is not None:
