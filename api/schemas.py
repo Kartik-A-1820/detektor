@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import List, Optional
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 
 class HealthResponse(BaseModel):
@@ -68,7 +68,7 @@ class PredictionResponse(BaseModel):
     boxes: Optional[List[List[float]]] = Field(None, description="Legacy: list of boxes")
     scores: Optional[List[float]] = Field(None, description="Legacy: list of scores")
     labels: Optional[List[int]] = Field(None, description="Legacy: list of labels")
-    masks: Optional[List[str]] = Field(None, description="Legacy: list of masks")
+    masks: Optional[List[Optional[str]]] = Field(None, description="Legacy: list of masks")
 
 
 class BatchPredictionResponse(BaseModel):
@@ -94,8 +94,45 @@ class MetricsResponse(BaseModel):
 
     total_requests: int = Field(..., description="Total number of requests processed")
     total_predictions: int = Field(..., description="Total number of predictions made")
-    avg_inference_time_ms: float = Field(..., description="Average inference time in milliseconds")
-    p50_inference_time_ms: float = Field(..., description="50th percentile inference time")
-    p95_inference_time_ms: float = Field(..., description="95th percentile inference time")
-    p99_inference_time_ms: float = Field(..., description="99th percentile inference time")
-    error_count: int = Field(..., description="Total number of errors")
+    avg_inference_time_ms: float = Field(0.0, description="Average inference time in milliseconds")
+    p50_inference_time_ms: float = Field(0.0, description="50th percentile inference time")
+    p95_inference_time_ms: float = Field(0.0, description="95th percentile inference time")
+    p99_inference_time_ms: float = Field(0.0, description="99th percentile inference time")
+    error_count: int = Field(0, description="Total number of errors")
+
+    # Legacy contract fields retained for compatibility.
+    total_errors: int = Field(0, description="Legacy alias for error_count")
+    avg_latency_ms: float = Field(0.0, description="Legacy alias for avg_inference_time_ms")
+    p50_latency_ms: float = Field(0.0, description="Legacy alias for p50_inference_time_ms")
+    p95_latency_ms: float = Field(0.0, description="Legacy alias for p95_inference_time_ms")
+    p99_latency_ms: float = Field(0.0, description="Legacy alias for p99_inference_time_ms")
+
+    @model_validator(mode="before")
+    @classmethod
+    def populate_metric_aliases(cls, data):
+        if not isinstance(data, dict):
+            return data
+
+        payload = dict(data)
+        alias_pairs = (
+            ("error_count", "total_errors"),
+            ("avg_inference_time_ms", "avg_latency_ms"),
+            ("p50_inference_time_ms", "p50_latency_ms"),
+            ("p95_inference_time_ms", "p95_latency_ms"),
+            ("p99_inference_time_ms", "p99_latency_ms"),
+        )
+        for canonical, legacy in alias_pairs:
+            if canonical not in payload and legacy in payload:
+                payload[canonical] = payload[legacy]
+            if legacy not in payload and canonical in payload:
+                payload[legacy] = payload[canonical]
+        return payload
+
+    @model_validator(mode="after")
+    def sync_metric_aliases(self) -> "MetricsResponse":
+        self.total_errors = self.error_count
+        self.avg_latency_ms = self.avg_inference_time_ms
+        self.p50_latency_ms = self.p50_inference_time_ms
+        self.p95_latency_ms = self.p95_inference_time_ms
+        self.p99_latency_ms = self.p99_inference_time_ms
+        return self
