@@ -1,4 +1,4 @@
-﻿# VibeCode Handoff
+# VibeCode Handoff
 
 ## Operating Constraints
 
@@ -511,11 +511,13 @@ Context:
 
 Execution rules for Project Z:
 - every new Story or Bug must be logged in this file before implementation starts
+- before starting work, ensure branch `beta` exists locally; if it does not exist, create it from the current integrated baseline
 - IDs must use the format `Z-1`, `Z-2`, `Z-3`, ...
 - each item must clearly say whether it is a `Story` or a `Bug`
 - when an item is completed, its entry in this file must be updated to `fixed`
 - when an item is completed, create a git commit whose title starts with the item ID, for example:
   - `Z-7 Fix metrics helper compatibility for regression tests`
+- after completing each `Z-*` item, push the resulting commit(s) to branch `beta`
 - this file is the canonical working log for Stories, Bugs, decisions, verification notes, and status changes for Project Z
 - do not treat generated outputs in `artifacts/`, `reports/`, or ad hoc `runs/` directories as source changes unless explicitly requested
 
@@ -538,6 +540,17 @@ Items:
     - this section added to `docs/handoffs/vibecode.md`
   - completion note:
     - fixed by documenting the Project Z operating model and phased backlog in this file
+
+- `Z-14` `Story` - Clarify branch bootstrap and push discipline for Project Z delivery
+  - status: fixed
+  - scope:
+    - require agents to ensure `beta` exists before starting work
+    - require agents to push completed `Z-*` work to `beta`
+    - keep the delivery rule in the canonical handoff file
+  - verification:
+    - execution rules in `docs/handoffs/vibecode.md` now explicitly define branch creation and push requirements
+  - completion note:
+    - fixed by adding explicit `beta` bootstrap and post-completion push rules to this file
 
 ### Phase 1: Rebuild The Engineering Safety Net
 
@@ -710,3 +723,4 @@ Current priority order:
 3. `Z-4`
 4. `Z-5`
 5. `Z-8`
+
