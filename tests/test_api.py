@@ -81,6 +81,7 @@ class ProductionAPITests(unittest.TestCase):
             version = client.get("/version")
             self.assertEqual(version.status_code, 200)
             self.assertIn("version", version.json())
+            self.assertEqual(version.json()["contract_version"], "v1")
 
     def test_predict_v1_endpoint_success(self) -> None:
         with self._test_client() as client:
@@ -91,6 +92,9 @@ class ProductionAPITests(unittest.TestCase):
             self.assertEqual(payload["num_detections"], 1)
             self.assertIn("request_id", payload)
             self.assertIn("detections", payload)
+            self.assertEqual(payload["boxes"], [payload["detections"][0]["box"]])
+            self.assertEqual(payload["scores"], [payload["detections"][0]["score"]])
+            self.assertEqual(payload["labels"], [payload["detections"][0]["label"]])
 
     def test_legacy_predict_endpoint_alias(self) -> None:
         with self._test_client() as client:
@@ -131,6 +135,16 @@ class ProductionAPITests(unittest.TestCase):
     def test_runtime_endpoints_expose_and_switch_checkpoints(self) -> None:
         config = ServiceConfig(weights="dummy.pt", enable_warmup=False)
         get_metrics_store().reset()
+        def _runtime_state_for_key(_run_dir, selected_path, checkpoint_key):
+            return {
+                "available_checkpoints": {
+                    "best": "F:/detektor/runs/demo/chimera_best.pt",
+                    "last": "F:/detektor/runs/demo/chimera_last.pt",
+                },
+                "active_checkpoint_key": checkpoint_key,
+                "active_checkpoint_path": str(selected_path),
+            }
+
         with patch("serve.load_model", return_value=(DummyModel(), torch.device("cpu"))), patch(
             "serve.discover_checkpoint_options",
             return_value=(
@@ -143,16 +157,18 @@ class ProductionAPITests(unittest.TestCase):
             ),
         ), patch(
             "serve.load_run_artifacts",
-            return_value={"available_checkpoints": {"best": "a", "last": "b"}, "active_checkpoint_key": "best"},
+            side_effect=_runtime_state_for_key,
         ):
             app = create_app(config)
             with TestClient(app) as client:
                 runtime = client.get("/runtime")
                 self.assertEqual(runtime.status_code, 200)
                 self.assertIn("active_checkpoint_key", runtime.json())
+                self.assertEqual(runtime.json()["contract_version"], "v1")
 
                 switched = client.post("/runtime/select_model", params={"model_key": "last"})
                 self.assertEqual(switched.status_code, 200)
+                self.assertEqual(switched.json()["active_checkpoint_key"], "last")
 
 
 if __name__ == "__main__":

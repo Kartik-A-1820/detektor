@@ -34,6 +34,7 @@ from api.schemas import (
     MetricsResponse,
     PredictionResponse,
     ReadyResponse,
+    RuntimeStateResponse,
     VersionResponse,
 )
 from api.utils import load_model
@@ -142,6 +143,10 @@ def _load_service(
 def get_runtime_state() -> dict:
     with MODEL_STORE.lock:
         return copy.deepcopy(MODEL_STORE.runtime_state)
+
+
+def build_runtime_state_response() -> RuntimeStateResponse:
+    return RuntimeStateResponse(**get_runtime_state())
 
 
 def get_service_snapshot() -> tuple[InferenceService, ServiceConfig]:
@@ -274,18 +279,20 @@ def create_app(config: ServiceConfig) -> FastAPI:
         stats = get_metrics_store().get_stats()
         return MetricsResponse(**stats)
 
-    @app.get("/runtime", tags=["Runtime"])
-    async def runtime() -> dict:
+    @app.get("/runtime", response_model=RuntimeStateResponse, tags=["Runtime"])
+    async def runtime() -> RuntimeStateResponse:
         """Runtime metadata for the active run and checkpoint."""
-        return get_runtime_state()
+        return build_runtime_state_response()
 
-    @app.post("/runtime/select_model", tags=["Runtime"])
-    async def select_model(model_key: str = Query(..., description="Checkpoint key: best, last, or custom")) -> dict:
+    @app.post("/runtime/select_model", response_model=RuntimeStateResponse, tags=["Runtime"])
+    async def select_model(
+        model_key: str = Query(..., description="Checkpoint key: best, last, or custom"),
+    ) -> RuntimeStateResponse:
         """Switch the active checkpoint without restarting the service."""
         state = get_runtime_state()
         if model_key not in state.get("available_checkpoints", {}):
             raise HTTPException(status_code=404, detail=f"Unknown checkpoint key: {model_key}")
-        return select_active_checkpoint(model_key)
+        return RuntimeStateResponse(**select_active_checkpoint(model_key))
 
     @app.post("/v1/predict", response_model=PredictionResponse, tags=["Prediction"])
     async def predict_v1(

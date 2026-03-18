@@ -729,12 +729,20 @@ python serve.py --weights runs/chimera/chimera_best.pt --host 0.0.0.0 --port 808
 | `POST /v1/predict_batch` | Multi-image inference | Validates batch size + per-image errors |
 | `POST /predict` | Legacy alias | Maps to `/v1/predict` (deprecated) |
 
+Local API contract:
+- Current contract version: `v1`
+- `GET /version` and `GET /runtime` expose `contract_version`
+- `detections` is the canonical prediction payload
+- `boxes`, `scores`, `labels`, and `masks` remain as legacy compatibility fields and stay index-aligned with `detections`
+- Metrics expose canonical latency/error fields plus equal legacy aliases for older clients
+
 **Health checks:**
 ```bash
 curl http://localhost:8000/health
 curl http://localhost:8000/ready
 curl http://localhost:8000/version
 curl http://localhost:8000/metrics
+curl http://localhost:8000/runtime
 ```
 
 **Single prediction:**
@@ -763,14 +771,18 @@ Responses now include:
     {"box": [x1, y1, x2, y2], "score": 0.93, "label": 0, "mask": "..."},
     {"box": [x1, y1, x2, y2], "score": 0.88, "label": 3}
   ],
+  "image_width": 1024,
+  "image_height": 768,
+  "inference_time_ms": 42.3,
   "boxes": [[...]],         // legacy fields
   "scores": [0.93, 0.88],
   "labels": [0, 3],
-  "image_width": 1024,
-  "image_height": 768,
-  "inference_time_ms": 42.3
+  "masks": ["...", null]
 }
 ```
+
+`GET /metrics` returns canonical fields like `error_count` and `avg_inference_time_ms`, while also retaining legacy aliases such as `total_errors` and `avg_latency_ms`.
+`GET /runtime` returns the active run metadata, available checkpoints, and the same `contract_version` marker used by `GET /version`.
 
 Uploads are validated for MIME type, corrupt data, and size (`--max-upload-size-mb`).
 

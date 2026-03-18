@@ -190,11 +190,22 @@ python serve.py --weights runs/chimera/chimera_best.pt
 **Endpoints:**
 - `GET /health` - Health check
 - `GET /ready` - Readiness check
-- `GET /version` - API version info
-- `GET /metrics` - Request metrics
+- `GET /version` - API version info with `contract_version`
+- `GET /metrics` - Request metrics with canonical fields plus legacy aliases
+- `GET /runtime` - Active run metadata and checkpoint inventory
+- `POST /runtime/select_model` - Switch active checkpoint by `model_key`
 - `POST /predict` - Legacy prediction endpoint
 - `POST /v1/predict` - Versioned prediction endpoint
-- `POST /v1/predict/batch` - Batch prediction endpoint
+- `POST /v1/predict_batch` - Batch prediction endpoint
+
+**Contract rules:**
+- Current local API contract version is `v1`
+- New clients should use `/v1/predict` and `/v1/predict_batch`
+- `POST /predict` remains a deprecated alias for `/v1/predict`
+- `detections` is the canonical ordered prediction list
+- `boxes`, `scores`, `labels`, and `masks` remain for backward compatibility and stay aligned with `detections`
+- `error_count` and `avg_inference_time_ms` are canonical metrics fields; `total_errors` and `avg_latency_ms` remain as equal compatibility aliases
+- `GET /version` and `GET /runtime` both expose the contract marker so local clients can assert the payload family before integrating
 
 **Examples:**
 ```bash
@@ -209,7 +220,11 @@ python serve.py --weights runs/chimera/chimera_best.pt --device cpu
 
 # Test with curl
 curl http://localhost:8000/health
+curl http://localhost:8000/version
+curl http://localhost:8000/runtime
 curl -X POST "http://localhost:8000/v1/predict" -F "image=@test.jpg"
+curl -X POST "http://localhost:8000/v1/predict_batch" -F "images=@frame1.jpg" -F "images=@frame2.jpg"
+curl -X POST "http://localhost:8000/runtime/select_model?model_key=last"
 
 # Interactive docs
 open http://localhost:8000/docs

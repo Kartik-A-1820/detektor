@@ -1,8 +1,11 @@
 from __future__ import annotations
 
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel, Field, field_validator, model_validator
+
+
+LOCAL_API_CONTRACT_VERSION = "v1"
 
 
 class HealthResponse(BaseModel):
@@ -25,6 +28,10 @@ class VersionResponse(BaseModel):
     """Version information response."""
 
     version: str = Field(..., description="API version")
+    contract_version: str = Field(
+        default=LOCAL_API_CONTRACT_VERSION,
+        description="Stable local API contract version for client integrations",
+    )
     model_type: str = Field(default="ChimeraODIS", description="Model architecture")
     num_classes: Optional[int] = Field(None, description="Number of object classes")
 
@@ -69,6 +76,45 @@ class PredictionResponse(BaseModel):
     scores: Optional[List[float]] = Field(None, description="Legacy: list of scores")
     labels: Optional[List[int]] = Field(None, description="Legacy: list of labels")
     masks: Optional[List[Optional[str]]] = Field(None, description="Legacy: list of masks")
+
+    @model_validator(mode="before")
+    @classmethod
+    def populate_detections_from_legacy_fields(cls, data):
+        if not isinstance(data, dict):
+            return data
+
+        payload = dict(data)
+        detections = payload.get("detections")
+        boxes = payload.get("boxes")
+        scores = payload.get("scores")
+        labels = payload.get("labels")
+        masks = payload.get("masks")
+
+        if (detections is None or len(detections) == 0) and boxes is not None and scores is not None and labels is not None:
+            built_detections = []
+            for index, box in enumerate(boxes):
+                detection = {
+                    "box": box,
+                    "score": scores[index],
+                    "label": labels[index],
+                }
+                if masks is not None and index < len(masks) and masks[index] is not None:
+                    detection["mask"] = masks[index]
+                built_detections.append(detection)
+            payload["detections"] = built_detections
+
+        return payload
+
+    @model_validator(mode="after")
+    def sync_legacy_prediction_fields(self) -> "PredictionResponse":
+        self.num_detections = len(self.detections)
+        self.boxes = [list(det.box) for det in self.detections]
+        self.scores = [float(det.score) for det in self.detections]
+        self.labels = [int(det.label) for det in self.detections]
+
+        masks = [det.mask for det in self.detections]
+        self.masks = masks if any(mask is not None for mask in masks) else None
+        return self
 
 
 class BatchPredictionResponse(BaseModel):
@@ -136,3 +182,29 @@ class MetricsResponse(BaseModel):
         self.p95_latency_ms = self.p95_inference_time_ms
         self.p99_latency_ms = self.p99_inference_time_ms
         return self
+
+
+class RuntimeStateResponse(BaseModel):
+    """Runtime metadata contract exposed by the local serving API."""
+
+    contract_version: str = Field(
+        default=LOCAL_API_CONTRACT_VERSION,
+        description="Stable local API contract version for client integrations",
+    )
+    run_dir: Optional[str] = Field(None, description="Resolved training run directory")
+    active_checkpoint_key: Optional[str] = Field(None, description="Active checkpoint selector key")
+    active_checkpoint_path: Optional[str] = Field(None, description="Resolved path to the active checkpoint")
+    available_checkpoints: Dict[str, str] = Field(
+        default_factory=dict,
+        description="Checkpoint options keyed by selector name such as best, last, or custom",
+    )
+    checkpoint_summary: Dict[str, Any] = Field(default_factory=dict, description="Loaded checkpoint metadata")
+    dataset: Dict[str, Any] = Field(default_factory=dict, description="Dataset metadata for the active run")
+    runtime: Dict[str, Any] = Field(default_factory=dict, description="Resolved runtime configuration")
+    training_summary: Dict[str, Any] = Field(default_factory=dict, description="Training summary fields")
+    validation_summary: Dict[str, Any] = Field(default_factory=dict, description="Validation summary fields")
+    metadata: Dict[str, Any] = Field(default_factory=dict, description="Additional run metadata")
+    train_curve: List[Dict[str, Any]] = Field(default_factory=list, description="Sampled training curve rows")
+    validation_history: List[Dict[str, Any]] = Field(default_factory=list, description="Validation history rows")
+    class_map: Dict[str, str] = Field(default_factory=dict, description="Stringified class id to class name map")
+    plots: Dict[str, str] = Field(default_factory=dict, description="Resolved paths to discovered plot images")

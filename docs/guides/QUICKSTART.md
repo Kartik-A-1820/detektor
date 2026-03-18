@@ -210,6 +210,7 @@ python serve.py \
 ```bash
 # Health check
 curl http://localhost:8000/health
+curl http://localhost:8000/version
 
 # Single prediction
 curl -X POST "http://localhost:8000/v1/predict" \
@@ -219,6 +220,8 @@ curl -X POST "http://localhost:8000/v1/predict" \
 # Interactive docs
 open http://localhost:8000/docs
 ```
+
+The local serving contract is currently `v1`. Check `GET /version` for `contract_version`, use `/v1/predict` and `/v1/predict_batch` for new integrations, and treat `POST /predict` as a deprecated compatibility alias.
 
 ### Step 9: Deploy with Docker (Optional)
 

@@ -9,6 +9,7 @@ import torch
 from torch import Tensor
 
 from api.logging_utils import RequestTimer
+from api.schemas import PredictionResponse
 from api.utils import encode_mask_to_base64_png, preprocess_image_bytes
 from models.chimera import ChimeraODIS
 
@@ -228,19 +229,18 @@ class InferenceService:
             detections.append(detection)
         
         # Build response with both new and legacy formats
-        response: Dict[str, object] = {
-            "num_detections": len(boxes),
-            "detections": detections,
-            "image_width": int(image_size[1]),
-            "image_height": int(image_size[0]),
-            "inference_time_ms": inference_time_ms,
-            # Legacy fields for backward compatibility
-            "boxes": boxes,
-            "scores": scores,
-            "labels": labels,
-        }
-        
-        if include_masks and prediction["masks"].numel() > 0:
-            response["masks"] = [encode_mask_to_base64_png(m) for m in prediction["masks"]]
-        
-        return response
+        response = PredictionResponse(
+            num_detections=len(boxes),
+            detections=detections,
+            image_width=int(image_size[1]),
+            image_height=int(image_size[0]),
+            inference_time_ms=inference_time_ms,
+            boxes=boxes,
+            scores=scores,
+            labels=labels,
+            masks=[encode_mask_to_base64_png(m) for m in prediction["masks"]]
+            if include_masks and prediction["masks"].numel() > 0
+            else None,
+        )
+
+        return response.model_dump()

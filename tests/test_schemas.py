@@ -9,9 +9,11 @@ from api.schemas import (
     Detection,
     ErrorResponse,
     HealthResponse,
+    LOCAL_API_CONTRACT_VERSION,
     MetricsResponse,
     PredictionResponse,
     ReadyResponse,
+    RuntimeStateResponse,
     VersionResponse,
 )
 
@@ -46,6 +48,7 @@ class TestSchemas(unittest.TestCase):
         data = response.model_dump()
         
         self.assertEqual(data["version"], "1.0.0")
+        self.assertEqual(data["contract_version"], LOCAL_API_CONTRACT_VERSION)
         self.assertEqual(data["model_type"], "ChimeraODIS")
         self.assertEqual(data["num_classes"], 4)
 
@@ -148,6 +151,44 @@ class TestSchemas(unittest.TestCase):
         self.assertIsNone(data["inference_time_ms"])
         self.assertIsNone(data["masks"])
 
+    def test_prediction_response_syncs_legacy_fields_from_detections(self) -> None:
+        """Canonical detections should drive the legacy compatibility fields."""
+        response = PredictionResponse(
+            num_detections=99,
+            detections=[Detection(box=[1.0, 2.0, 3.0, 4.0], score=0.9, label=7, mask="mask-a")],
+            image_width=320,
+            image_height=240,
+        )
+
+        data = response.model_dump()
+
+        self.assertEqual(data["num_detections"], 1)
+        self.assertEqual(data["boxes"], [[1.0, 2.0, 3.0, 4.0]])
+        self.assertEqual(data["scores"], [0.9])
+        self.assertEqual(data["labels"], [7])
+        self.assertEqual(data["masks"], ["mask-a"])
+
+    def test_prediction_response_builds_detections_from_legacy_fields(self) -> None:
+        """Legacy payloads should still hydrate the canonical detections list."""
+        response = PredictionResponse(
+            num_detections=1,
+            detections=[],
+            boxes=[[5.0, 6.0, 7.0, 8.0]],
+            scores=[0.8],
+            labels=[3],
+            masks=["mask-b"],
+            image_width=640,
+            image_height=480,
+        )
+
+        data = response.model_dump()
+
+        self.assertEqual(len(data["detections"]), 1)
+        self.assertEqual(data["detections"][0]["box"], [5.0, 6.0, 7.0, 8.0])
+        self.assertEqual(data["detections"][0]["score"], 0.8)
+        self.assertEqual(data["detections"][0]["label"], 3)
+        self.assertEqual(data["detections"][0]["mask"], "mask-b")
+
     def test_batch_prediction_response_serialization(self) -> None:
         """Test BatchPredictionResponse schema."""
         pred1 = PredictionResponse(
@@ -208,7 +249,18 @@ class TestSchemas(unittest.TestCase):
         self.assertEqual(data["total_requests"], 100)
         self.assertEqual(data["total_predictions"], 250)
         self.assertEqual(data["total_errors"], 5)
+        self.assertEqual(data["error_count"], 5)
         self.assertEqual(data["avg_latency_ms"], 45.2)
+        self.assertEqual(data["avg_inference_time_ms"], 45.2)
+
+    def test_runtime_state_response_defaults_contract_version(self) -> None:
+        """Runtime contract should always expose the current contract version."""
+        response = RuntimeStateResponse(active_checkpoint_key="best")
+
+        data = response.model_dump()
+
+        self.assertEqual(data["contract_version"], LOCAL_API_CONTRACT_VERSION)
+        self.assertEqual(data["active_checkpoint_key"], "best")
 
     def test_schema_json_serialization(self) -> None:
         """Test that schemas can be serialized to JSON."""
