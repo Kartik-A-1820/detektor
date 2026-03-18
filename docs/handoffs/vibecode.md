@@ -45,6 +45,20 @@
     - upload flow works on `F:/data/test/images/08fd33_3_6_png.rf.261781c58b95436fb40e6afc0495bc57.jpg` with active checkpoint `last`
     - folder inference works on `F:/detektor/.tmp_testdata/ui_verify` with active checkpoint `best`
     - runtime checkpoint switching works end to end: `best -> last -> best`
+- Phase 3 diagnostic baseline: `2026-03-18`
+  - baseline checkpoint: `F:/detektor/runs/refactor_verify_5epoch/chimera_best.pt`
+  - baseline validation artifacts: `F:/detektor/runs/z8_baseline_validate`
+  - baseline assignment audit: `F:/detektor/runs/z8_phase3_baseline/phase3_diagnostics.json`
+  - commands:
+    - `.\.venv\Scripts\python.exe validate.py --weights runs/refactor_verify_5epoch/chimera_best.pt --data-yaml F:/data/data.yaml --output-dir runs/z8_baseline_validate`
+    - `.\.venv\Scripts\python.exe scripts/phase3_diagnostics.py --data-yaml F:/data/data.yaml --output runs/z8_phase3_baseline/phase3_diagnostics.json`
+    - `.\.venv\Scripts\python.exe check_dataset.py --data-yaml F:/data/data.yaml`
+  - verified baseline results:
+    - detection precision `0.7808`, recall `0.2913`, AP50 `0.2363`, mean box IoU `0.6867`
+    - per-class recall is `0.0000` for `ball`, `goalkeeper`, and `referee`; only `player` is detected (`0.3515` recall)
+    - dataset remains heavily skewed toward `player` annotations (`83.4%` overall) with `ball` at `3.6%`
+    - at `512` input resolution with the current `CenterPriorAssigner(center_radius=2.5)`, `70.54%` of training `ball` boxes and `60.0%` of validation `ball` boxes receive zero positive points
+    - median `ball` box size is only `3.11 x 5.78 px` on train and `2.67 x 5.33 px` on val, so the current `inside_box` rule is the dominant recall blocker for tiny objects; class imbalance is secondary
 - Main remaining risks:
   - model quality and recall
   - deployment-path verification gaps such as Docker
@@ -57,16 +71,6 @@ Goal:
 - improve real detection quality after the engineering base was stabilized
 
 Items:
-- `Z-8` `Story` - Audit training signal quality and dominant recall failure mode on `F:/data/data.yaml`
-  - scope:
-    - inspect class balance, target quality, assignment behavior, and current validation curves
-    - identify the main cause of weak recall
-  - target outcome:
-    - written diagnosis with a reproducible baseline
-  - verification:
-    - concise diagnostic summary recorded here
-    - baseline metrics recorded with exact run paths
-
 - `Z-9` `Story` - Improve recall via target-assignment and head/loss calibration changes
   - scope:
     - investigate assignment thresholds, positive matching, confidence calibration, and loss weighting
@@ -137,9 +141,8 @@ Phase 5 exit:
 
 ## Priority Order
 
-1. `Z-8`
-2. `Z-9`
-3. `Z-10`
-4. `Z-11`
-5. `Z-12`
-6. `Z-13`
+1. `Z-9`
+2. `Z-10`
+3. `Z-11`
+4. `Z-12`
+5. `Z-13`
