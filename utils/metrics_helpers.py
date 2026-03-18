@@ -22,6 +22,68 @@ from utils.box_ops import box_iou
 EPS = 1e-6
 
 
+def _as_tensor(value: Any, dtype: Optional[torch.dtype] = None) -> Tensor:
+    """Convert numpy arrays / lists / tensors into detached CPU tensors."""
+    if isinstance(value, Tensor):
+        tensor = value.detach().cpu()
+    else:
+        tensor = torch.as_tensor(value)
+    if dtype is not None:
+        tensor = tensor.to(dtype=dtype)
+    return tensor
+
+
+def _compute_ap_at_iou_threshold(
+    pred_boxes: Tensor,
+    pred_scores: Tensor,
+    pred_labels: Tensor,
+    gt_boxes: Tensor,
+    gt_labels: Tensor,
+    iou_threshold: float,
+) -> float:
+    """Compute average precision for a single IoU threshold."""
+    if pred_boxes.numel() == 0 or gt_boxes.numel() == 0:
+        return 0.0
+
+    order = pred_scores.argsort(descending=True)
+    pred_boxes_sorted = pred_boxes[order]
+    pred_labels_sorted = pred_labels[order]
+
+    matched_gt = torch.zeros(gt_boxes.shape[0], dtype=torch.bool)
+    tp_flags = []
+
+    for box, label in zip(pred_boxes_sorted, pred_labels_sorted):
+        candidate_mask = (gt_labels == label) & (~matched_gt)
+        if not candidate_mask.any():
+            tp_flags.append(0)
+            continue
+
+        candidate_indices = torch.nonzero(candidate_mask, as_tuple=False).squeeze(1)
+        pair_iou = box_iou(box.unsqueeze(0), gt_boxes[candidate_indices]).squeeze(0)
+        best_iou, best_idx_local = pair_iou.max(dim=0)
+
+        if float(best_iou.item()) >= iou_threshold:
+            gt_index = candidate_indices[int(best_idx_local.item())]
+            matched_gt[gt_index] = True
+            tp_flags.append(1)
+        else:
+            tp_flags.append(0)
+
+    running_tp = 0
+    running_fp = 0
+    precisions = []
+    recalls = []
+    total_gt = gt_boxes.shape[0]
+
+    for tp_flag in tp_flags:
+        running_tp += tp_flag
+        running_fp += 1 - tp_flag
+        precisions.append(running_tp / max(running_tp + running_fp, 1))
+        recalls.append(running_tp / max(total_gt, 1))
+
+    return compute_ap_from_pr_curve(precisions, recalls, method="continuous")
+
+
 def compute_precision_recall_f1(
     tp: int,
     fp: int,
@@ -97,56 +159,58 @@ def compute_ap50_95(
     Returns:
         AP50-95 score
     """
+    pred_boxes = _as_tensor(pred_boxes, dtype=torch.float32).reshape(-1, 4)
+    pred_scores = _as_tensor(pred_scores, dtype=torch.float32).reshape(-1)
+    pred_labels = _as_tensor(pred_labels, dtype=torch.long).reshape(-1)
+    gt_boxes = _as_tensor(gt_boxes, dtype=torch.float32).reshape(-1, 4)
+    gt_labels = _as_tensor(gt_labels, dtype=torch.long).reshape(-1)
+
     if pred_boxes.numel() == 0 or gt_boxes.numel() == 0:
         return 0.0
-    
+
     iou_thresholds = np.arange(0.5, 1.0, 0.05)
     aps = []
-    
+
     for iou_thresh in iou_thresholds:
-        # Sort by score
-        order = pred_scores.argsort(descending=True)
-        pred_boxes_sorted = pred_boxes[order]
-        pred_scores_sorted = pred_scores[order]
-        pred_labels_sorted = pred_labels[order]
-        
-        matched_gt = torch.zeros(gt_boxes.shape[0], dtype=torch.bool)
-        tp_flags = []
-        
-        for box, label in zip(pred_boxes_sorted, pred_labels_sorted):
-            candidate_mask = (gt_labels == label) & (~matched_gt)
-            if not candidate_mask.any():
-                tp_flags.append(0)
-                continue
-            
-            candidate_indices = torch.nonzero(candidate_mask, as_tuple=False).squeeze(1)
-            pair_iou = box_iou(box.unsqueeze(0), gt_boxes[candidate_indices]).squeeze(0)
-            best_iou, best_idx_local = pair_iou.max(dim=0)
-            
-            if float(best_iou.item()) >= iou_thresh:
-                gt_index = candidate_indices[int(best_idx_local.item())]
-                matched_gt[gt_index] = True
-                tp_flags.append(1)
-            else:
-                tp_flags.append(0)
-        
-        # Compute AP for this IoU threshold
-        running_tp = 0
-        running_fp = 0
-        precisions = []
-        recalls = []
-        total_gt = gt_boxes.shape[0]
-        
-        for tp_flag in tp_flags:
-            running_tp += tp_flag
-            running_fp += 1 - tp_flag
-            precisions.append(running_tp / max(running_tp + running_fp, 1))
-            recalls.append(running_tp / max(total_gt, 1))
-        
-        ap = compute_ap_from_pr_curve(precisions, recalls, method="continuous")
-        aps.append(ap)
-    
+        aps.append(
+            _compute_ap_at_iou_threshold(
+                pred_boxes=pred_boxes,
+                pred_scores=pred_scores,
+                pred_labels=pred_labels,
+                gt_boxes=gt_boxes,
+                gt_labels=gt_labels,
+                iou_threshold=float(iou_thresh),
+            )
+        )
+
     return float(np.mean(aps))
+
+
+def compute_ap50(
+    pred_boxes: Any,
+    pred_scores: Any,
+    pred_labels: Any,
+    gt_boxes: Any,
+    gt_labels: Any,
+    num_classes: Optional[int] = None,
+) -> float:
+    """Backward-compatible AP@0.5 helper used by older tests and integrations."""
+    del num_classes
+    pred_boxes_t = _as_tensor(pred_boxes, dtype=torch.float32).reshape(-1, 4)
+    pred_scores_t = _as_tensor(pred_scores, dtype=torch.float32).reshape(-1)
+    pred_labels_t = _as_tensor(pred_labels, dtype=torch.long).reshape(-1)
+    gt_boxes_t = _as_tensor(gt_boxes, dtype=torch.float32).reshape(-1, 4)
+    gt_labels_t = _as_tensor(gt_labels, dtype=torch.long).reshape(-1)
+    return float(
+        _compute_ap_at_iou_threshold(
+            pred_boxes=pred_boxes_t,
+            pred_scores=pred_scores_t,
+            pred_labels=pred_labels_t,
+            gt_boxes=gt_boxes_t,
+            gt_labels=gt_labels_t,
+            iou_threshold=0.5,
+        )
+    )
 
 
 def compute_confusion_matrix(
