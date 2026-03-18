@@ -1,6 +1,6 @@
 # Detektor
 
-A production-ready object detection and instance segmentation framework optimized for rapid experimentation, stable training, and local deployment on modest hardware (GTX 1650 Ti 4GB).
+A local-first object detection and instance segmentation framework for rapid experimentation, training workflow iteration, and single-machine deployment on modest hardware such as a GTX 1650 Ti 4GB.
 
 This project is **fully vibe-coded**, meaning it was built through iterative collaboration between a human developer and AI coding assistants. In this repository, *vibe coding* means rapidly turning ideas into working code, refining them through repeated experimentation, and then hardening the useful workflows into a practical ML project.
 
@@ -11,7 +11,26 @@ This project is **fully vibe-coded**, meaning it was built through iterative col
 - **[Tools Reference](docs/reference/TOOLS.md)** - Comprehensive CLI documentation
 - **[Changelog](CHANGELOG.md)** - Version history and updates
 
-## Recent Updates (March 2026)
+## Current Status (March 18, 2026)
+
+Detektor is currently best described as an early release candidate for local experimentation and single-machine deployment, not a fully production-ready system.
+
+What is working well:
+- Dataset validation before training
+- Auto-configured training on local hardware
+- Smart training retries for common runtime failures
+- Checkpoint packaging with embedded model metadata
+- CLI inference, folder inference, and local FastAPI serving
+- Gradio UI with runtime checkpoint switching
+- ONNX export and architecture compatibility reporting
+
+What still needs work:
+- Model quality remains the main open problem, especially recall
+- The full automated test suite is not green in the current environment
+- Some API/schema and metrics/reporting contracts have drifted from their tests
+- Docker is documented, but not verified on this machine because Docker is not installed
+
+## Implemented Areas (March 2026)
 
 ### Production Hardening
 - ✅ **Dataset Validation**: Pre-training validation tool to catch data issues
@@ -38,16 +57,16 @@ This project is **fully vibe-coded**, meaning it was built through iterative col
 
 ## Project Overview
 
-Detektor is built for local-first ML development and deployment:
+Detektor is built for local-first ML development:
 
-- **Train** on YOLO-style datasets with stable, production-grade training loop
-- **Validate** dataset quality before training with comprehensive checks
-- **Evaluate** models with production-grade metrics (AP50, AP50-95, confusion matrix)
+- **Train** on YOLO-style datasets with a hardware-aware training loop
+- **Validate** dataset quality before training with preflight checks
+- **Evaluate** models with AP, confusion matrix, and threshold-sweep tooling
 - **Infer** on single images or batch process entire folders
-- **Serve** predictions through production FastAPI with versioned endpoints
+- **Serve** predictions through a local FastAPI service and Gradio UI
 - **Package** models with full reproducibility metadata
-- **Deploy** with Docker for CPU or GPU environments
-- **Export** to ONNX for optimized inference
+- **Deploy** to local CPU or GPU environments where supported
+- **Export** to ONNX for later runtime optimization
 
 ## Task Modes
 
@@ -93,7 +112,7 @@ Mode: INSTANCE SEGMENTATION
 The system samples your dataset and automatically chooses the appropriate mode.
 - prepare for later runtime optimization such as TensorRT
 
-The codebase is intentionally lightweight and practical, with a bias toward single-machine workflows and modest GPUs such as the GTX 1650 Ti 4GB.
+The codebase is intentionally lightweight and practical, with a bias toward single-machine workflows and modest GPUs such as the GTX 1650 Ti 4GB rather than distributed training or cloud-scale deployment.
 
 ## Features
 
