@@ -28,43 +28,28 @@
 - Full automated unittest suite is green in this environment.
 - Latest full verification:
   - `.\.venv\Scripts\python.exe -m unittest discover -s tests -p "test_*.py"`
-  - result: `172` passed path, `1` skipped
+  - result: `175` passed path, `1` skipped
+- Latest contract verification:
+  - `.\.venv\Scripts\python.exe -m unittest tests.test_api tests.test_schemas tests.test_regression`
+  - result: `35` passed
+- Local serving contract:
+  - current contract version: `v1`
+  - docs aligned in `README.md`, `docs/reference/TOOLS.md`, and `docs/guides/QUICKSTART.md`
+- Latest live UI verification: `2026-03-18`
+  - run: `F:/detektor/runs/auto_verify_5epoch`
+  - serve command:
+    - `.\.venv\Scripts\python.exe serve.py --weights runs/auto_verify_5epoch/chimera_best.pt --device cpu --host 127.0.0.1 --port 8000 --no-warmup --ui`
+  - verified:
+    - mounted `/ui/` loads and `GET /version` plus `GET /runtime` expose `contract_version = v1`
+    - dashboard shows run metadata, class map, validation history, and saved plots
+    - upload flow works on `F:/data/test/images/08fd33_3_6_png.rf.261781c58b95436fb40e6afc0495bc57.jpg` with active checkpoint `last`
+    - folder inference works on `F:/detektor/.tmp_testdata/ui_verify` with active checkpoint `best`
+    - runtime checkpoint switching works end to end: `best -> last -> best`
 - Main remaining risks:
   - model quality and recall
-  - real browser-level serving verification against a trained run
   - deployment-path verification gaps such as Docker
 
 ## Project Z
-
-### Phase 2: Serving And Contract Stabilization
-
-Goal:
-- make local serving reliable and contract-stable now that the base suite is trustworthy
-
-Items:
-- `Z-6` `Story` - Lock the public local API contract
-  - scope:
-    - version the response contract deliberately
-    - document legacy-field compatibility rules
-    - align server responses, schemas, and tests
-  - target outcome:
-    - one stable documented contract for local API consumers
-  - verification:
-    - `.\.venv\Scripts\python.exe -m unittest tests.test_api tests.test_schemas tests.test_regression`
-    - docs and implementation agree
-
-- `Z-7` `Bug` - Verify integrated UI and runtime checkpoint switching against a real trained run
-  - problem:
-    - UI construction is tested, but a real end-to-end browser flow has not been verified against an actual checkpointed run
-  - target outcome:
-    - verify upload flow, folder inference, plot display, run metadata, and `best`/`last` switching end to end
-  - verification:
-    - live manual verification notes recorded here
-    - any newly discovered defects logged as new `Z-*` items
-
-Phase 2 exit:
-- local API responses are stable and documented
-- mounted UI workflow is verified with a real trained run
 
 ### Phase 3: Training Quality And Model Performance
 
@@ -152,11 +137,9 @@ Phase 5 exit:
 
 ## Priority Order
 
-1. `Z-6`
-2. `Z-7`
-3. `Z-8`
-4. `Z-9`
-5. `Z-10`
-6. `Z-11`
-7. `Z-12`
-8. `Z-13`
+1. `Z-8`
+2. `Z-9`
+3. `Z-10`
+4. `Z-11`
+5. `Z-12`
+6. `Z-13`
