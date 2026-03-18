@@ -88,38 +88,50 @@ Items:
 - `Z-9` `Story` - Improve recall via target-assignment and head/loss calibration changes
   - scope:
     - investigate assignment thresholds, positive matching, confidence calibration, and loss weighting
-  - current probe status:
-    - current best controlled probe on `2026-03-18`: stride-aware minimum effective target size (`8 px`) inside `CenterPriorAssigner`
+    - current blocker is no longer zero assignment; it is zero minority-class recall after assignment was fixed
+  - current best probe:
+    - `2026-03-18`: stride-aware minimum effective target size (`8 px`) inside `CenterPriorAssigner`
     - diagnostic artifacts: `F:/detektor/runs/z9_effective_box_phase3/phase3_diagnostics.json`
     - training run: `F:/detektor/runs/z9_effective_box_5epoch`
     - standalone validation artifacts: `F:/detektor/runs/z9_effective_box_5epoch_validate`
-    - command:
-      - `.\.venv\Scripts\python.exe scripts/phase3_diagnostics.py --data-yaml F:/data/data.yaml --output runs/z9_effective_box_phase3/phase3_diagnostics.json`
-      - `.\.venv\Scripts\python.exe train.py --config runs/refactor_verify_5epoch/resolved_train_config.yaml --data-yaml F:/data/data.yaml --device cuda --img-size 512 --epochs 5 --batch-size 4 --grad-accum 2 --lr 0.002 --num-workers 0 --vram-cap 0.8 --no-maximize-batch-size --out-dir runs/z9_effective_box_5epoch --run-val --val-freq 1`
-      - `.\.venv\Scripts\python.exe validate.py --weights runs/z9_effective_box_5epoch/chimera_best.pt --data-yaml F:/data/data.yaml --output-dir runs/z9_effective_box_5epoch_validate`
     - result versus baseline:
       - baseline standalone validate: precision `0.7808`, recall `0.2913`, AP50 `0.2363`
       - current candidate: precision `0.6156`, recall `0.4310`, AP50 `0.3543`
       - assignment audit improved `ball` zero-positive rate from `70.54%` to `0.0%` on train and from `60.0%` to `0.0%` on val
       - per-class recall is still `0.0000` for `ball`, `goalkeeper`, and `referee`, so the dominant non-player failure mode remains open
-    - rejected earlier on `2026-03-18`: per-GT fallback assignment plus fallback objectness floor `0.2`
-      - training run: `F:/detektor/runs/z9_assigner_fallback_objfloor_5epoch`
-      - standalone validation artifacts: `F:/detektor/runs/z9_assigner_fallback_objfloor_5epoch_validate`
-      - result: precision `0.6781`, recall `0.2692`, AP50 `0.1878`
-  - target outcome:
-    - materially better recall and mAP on controlled comparisons without leaving small-object and minority-class recall at zero
+  - rejected probe:
+    - `2026-03-18`: per-GT fallback assignment plus fallback objectness floor `0.2`
+    - training run: `F:/detektor/runs/z9_assigner_fallback_objfloor_5epoch`
+    - standalone validation artifacts: `F:/detektor/runs/z9_assigner_fallback_objfloor_5epoch_validate`
+    - result: precision `0.6781`, recall `0.2692`, AP50 `0.1878`
+  - next-agent execution order:
+    - first, fix `Z-14` so every fresh `--run-val` training run records a valid epoch-1 checkpoint evaluation
+    - second, keep the current assigner change as the baseline and do not revert it unless a new controlled probe beats `runs/z9_effective_box_5epoch_validate`
+    - third, run one calibration-focused probe that targets class discrimination rather than assignment count
+    - recommended first probe: minority-class-aware classification/objectness weighting or thresholding that is measured against per-class recall, not just aggregate AP50
+    - avoid starting long runs until a 5-epoch probe produces non-zero recall for at least one of `ball`, `goalkeeper`, or `referee`
+  - exit criteria:
+    - materially better recall and AP50 than the Z-8 baseline
+    - non-zero standalone validation recall for at least one currently dead minority class
+    - exact commands, run paths, and per-class metrics recorded here
   - verification:
     - before/after run comparison logged here with exact commands and paths
+    - standalone `validate.py` evidence must include `per_class_metrics.csv`
 
 - `Z-10` `Story` - Run longer controlled experiments after calibration changes
   - scope:
+    - starts only after `Z-9` has a clean short-run candidate that meets the `Z-9` exit criteria
     - compare short smoke runs against longer verification runs
-    - confirm gains persist past early epochs
+    - confirm gains persist past early epochs without minority-class regression
+  - entry gate:
+    - do not start from a candidate that improves only aggregate `player` metrics while leaving `ball`, `goalkeeper`, and `referee` at `0.0000` recall
   - target outcome:
     - stable longer-run improvement, not a short-run artifact
+    - checkpoint choice backed by both aggregate metrics and per-class recall
   - verification:
     - epoch-by-epoch metrics summary recorded here
     - selected checkpoint and rationale documented here
+    - standalone validation artifacts for the long run recorded here
 
 - `Z-14` `Bug` - Fix training-time validation hook ordering for fresh runs
   - problem:
@@ -128,6 +140,14 @@ Items:
     - every requested validation epoch evaluates a real checkpoint without relying on a prior run artifact
   - verification:
     - fresh `--run-val` training run records epoch-1 validation metrics without a missing-file warning
+
+- `Z-15` `Story` - Add per-class Phase 3 promotion gates to validation reporting
+  - problem:
+    - aggregate AP50 improved in `Z-9`, but three classes still have `0.0000` recall and that can be missed when comparing only top-line metrics
+  - target outcome:
+    - Phase 3 comparisons and checkpoint promotion decisions explicitly surface minority-class recall and dead-class status
+  - verification:
+    - validation summary or handoff log clearly reports per-class recall deltas and flags classes that remain at zero recall
 
 Phase 3 exit:
 - recall and mAP improve materially on the active dataset
@@ -181,9 +201,10 @@ Phase 5 exit:
 
 ## Priority Order
 
-1. `Z-9`
-2. `Z-14`
-3. `Z-10`
-4. `Z-11`
-5. `Z-12`
-6. `Z-13`
+1. `Z-14`
+2. `Z-9`
+3. `Z-15`
+4. `Z-10`
+5. `Z-11`
+6. `Z-12`
+7. `Z-13`
