@@ -515,6 +515,8 @@ def resolve_training_config(
         cfg["model"] = _deep_merge(cfg.get("model", {}), explicit_model_cfg)
     if explicit_logging_cfg:
         cfg["logging"] = _deep_merge(cfg.get("logging", {}), explicit_logging_cfg)
+    if data_yaml:
+        dataset_info = apply_dataset_yaml_overrides(cfg, data_yaml)
 
     cfg["train"]["img_size"] = _next_multiple_of_32(int(cfg["train"]["img_size"]))
     cfg["train"]["num_workers"] = max(int(cfg["train"].get("num_workers", 0)), 0)

@@ -276,6 +276,41 @@ class TestAutoTrainConfig(unittest.TestCase):
         self.assertEqual(cfg["logging"]["out_dir"], "runs/explicit_epochs_test")
         self.assertEqual(summary["out_dir"], "runs/explicit_epochs_test")
 
+    def test_resolve_training_config_keeps_data_yaml_overrides_with_config_path(self) -> None:
+        yaml_path = self._create_dataset_yaml()
+        config_path = self.temp_path / "explicit_data.yaml"
+        config_path.write_text(
+            yaml.safe_dump(
+                {
+                    "data": {
+                        "train": "F:/wrong/train",
+                        "val": "F:/wrong/val",
+                        "num_classes": 99,
+                        "names": ["wrong"],
+                    },
+                    "logging": {
+                        "out_dir": "runs/explicit_data_test",
+                    },
+                }
+            ),
+            encoding="utf-8",
+        )
+        fake_props = SimpleNamespace(name="GTX 1650 Ti", total_memory=4 * 1024 ** 3, major=7, minor=5)
+
+        with (
+            mock.patch("utils.auto_train_config.torch.cuda.is_available", return_value=True),
+            mock.patch("utils.auto_train_config.torch.cuda.get_device_properties", return_value=fake_props),
+            mock.patch("utils.auto_train_config.torch.cuda.is_bf16_supported", return_value=False),
+        ):
+            cfg, summary = resolve_training_config(str(config_path), str(yaml_path))
+
+        self.assertEqual(Path(cfg["data"]["train"]).name, "train")
+        self.assertEqual(Path(cfg["data"]["val"]).name, "val")
+        self.assertEqual(cfg["data"]["num_classes"], 1)
+        self.assertEqual(cfg["data"]["names"], ["ball"])
+        self.assertEqual(Path(summary["resolved_train_root"]).name, "train")
+        self.assertEqual(Path(summary["resolved_val_root"]).name, "val")
+
 
 class TestTrainingAugmentations(unittest.TestCase):
     """Unit tests for deterministic augmentation behavior."""

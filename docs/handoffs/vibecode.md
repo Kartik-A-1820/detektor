@@ -85,6 +85,17 @@
     - standalone validation regressed from precision `0.6156`, recall `0.4310`, AP50 `0.3543`, mean box IoU `0.6754` to `0.0000` across all four metrics
     - `per_class_metrics.csv` stayed at `0.0000` recall for `ball`, `goalkeeper`, and `referee`, and also dropped `player` recall from `0.5200` to `0.0000`
     - in-loop validation stayed at `0.0000` `val_map50` for epochs `1` through `5`, so this probe does not support the capacity-limiter hypothesis on the current settings
+- Latest Phase 3 continuation probe: `2026-03-18`
+  - candidate: 10-epoch continuation-style run from the current assigner baseline checkpoint
+  - training run: `F:/detektor/runs/z17_effective_box_10epoch_continue`
+  - standalone validation artifacts: `F:/detektor/runs/z17_effective_box_10epoch_continue_validate`
+  - commands:
+    - `.\.venv\Scripts\python.exe train.py --config runs/z9_effective_box_5epoch/resolved_train_config.yaml --data-yaml F:/data/data.yaml --device cuda --img-size 512 --epochs 10 --batch-size 4 --grad-accum 2 --lr 0.002 --num-workers 0 --vram-cap 0.8 --no-maximize-batch-size --out-dir runs/z17_effective_box_10epoch_continue --resume runs/z9_effective_box_5epoch/chimera_last.pt --run-val --val-freq 1`
+    - `.\.venv\Scripts\python.exe validate.py --weights runs/z17_effective_box_10epoch_continue/chimera_best.pt --data-yaml F:/data/data.yaml --output-dir runs/z17_effective_box_10epoch_continue_validate`
+  - verified results versus `runs/z9_effective_box_5epoch_validate`:
+    - standalone validation improved from precision `0.6156`, recall `0.4310`, AP50 `0.3543`, mean box IoU `0.6754` to precision `0.6629`, recall `0.6482`, AP50 `0.5512`, mean box IoU `0.7116`
+    - `per_class_metrics.csv` still shows `0.0000` recall for `ball`, `goalkeeper`, and `referee`, while `player` recall rose from `0.5200` to `0.7821`
+    - in-loop validation history climbed from epoch 6 `val_map50=0.2334` to epoch 10 `val_map50=0.4214`, but the longer run still failed the minority-class promotion gate and does not justify advancing the checkpoint
 
 - Latest training-time validation hook verification: `2026-03-18`
   - fix scope:
@@ -146,11 +157,19 @@ Items:
       - standalone validation: precision `0.5778` vs `0.6156`, recall `0.4966` vs `0.4310`, AP50 `0.3530` vs `0.3543`, mean box IoU `0.6835` vs `0.6754`
       - `per_class_metrics.csv` still shows `0.0000` recall for `ball`, `goalkeeper`, and `referee`
       - `player` recall improved from `0.5200` to `0.5992`, but that does not clear the minority-class gate
+    - `2026-03-18`: 10-epoch continuation-style persistence probe from `runs/z9_effective_box_5epoch/chimera_last.pt`
+    - training run: `F:/detektor/runs/z17_effective_box_10epoch_continue`
+    - standalone validation artifacts: `F:/detektor/runs/z17_effective_box_10epoch_continue_validate`
+    - result versus current best `runs/z9_effective_box_5epoch_validate`:
+      - standalone validation improved to precision `0.6629`, recall `0.6482`, AP50 `0.5512`, mean box IoU `0.7116`
+      - `per_class_metrics.csv` still shows `0.0000` recall for `ball`, `goalkeeper`, and `referee`
+      - `player` recall improved from `0.5200` to `0.7821`, but this remains a player-only gain and does not clear the minority-class gate
   - next-agent execution order:
     - first, keep the current assigner change as the baseline and do not revert it unless a new controlled probe beats `runs/z9_effective_box_5epoch_validate` and clears the minority-class gate
     - second, prioritize changes that can create non-zero recall for at least one of `ball`, `goalkeeper`, or `referee`
     - third, use `per_class_metrics.csv` as a hard promotion gate, not just aggregate AP50
     - fourth, if calibration changes still fail, evaluate whether capacity is the limiter by running one controlled architecture probe before any broad refactor
+    - fifth, treat the completed 10-epoch continuation evidence as player-only amplification; do not promote it and do not use longer runs as the next blind search axis
     - do not start `Z-10` until a 5-epoch probe produces non-zero standalone validation recall for at least one currently dead minority class
   - exit criteria:
     - materially better recall and AP50 than the Z-8 baseline
@@ -167,7 +186,7 @@ Items:
     - confirm gains persist past early epochs without minority-class regression
   - entry gate:
     - do not start from a candidate that improves only aggregate `player` metrics while leaving `ball`, `goalkeeper`, and `referee` at `0.0000` recall
-    - current status `2026-03-18`: blocked; latest 5-epoch calibration probe kept all minority-class recalls at `0.0000`
+    - current status `2026-03-18`: blocked; the latest 10-epoch continuation run improved aggregate metrics but still kept `ball`, `goalkeeper`, and `referee` at `0.0000` standalone validation recall
   - target outcome:
     - stable longer-run improvement, not a short-run artifact
     - checkpoint choice backed by both aggregate metrics and per-class recall
@@ -203,8 +222,12 @@ Items:
     - compare epoch-by-epoch validation history and standalone `validate.py` output against the 5-epoch result, not just the baseline
     - stop using longer runs as a blind search; require per-class evidence
   - current status `2026-03-18`:
-    - not started
-    - minority-class recall is still unresolved after the real `nova` architecture probe failed, so this is now the next item to consider if Phase 3 work continues
+    - completed one controlled continuation-style probe from `runs/z9_effective_box_5epoch/chimera_last.pt`
+    - training run: `F:/detektor/runs/z17_effective_box_10epoch_continue`
+    - standalone validation artifacts: `F:/detektor/runs/z17_effective_box_10epoch_continue_validate`
+    - epoch history improved from epoch 6 `val_map50=0.2334` to epoch 10 `val_map50=0.4214`
+    - standalone validation improved to precision `0.6629`, recall `0.6482`, AP50 `0.5512`, mean box IoU `0.7116`
+    - `per_class_metrics.csv` still kept `ball`, `goalkeeper`, and `referee` at `0.0000` recall, so the probe answered the story negatively: extra optimization time amplified `player` only and does not justify promotion
   - target outcome:
     - determine whether extra optimization time produces non-zero minority-class recall or just amplifies `player`
   - verification:
@@ -271,24 +294,10 @@ Phase 5 exit:
 ## Priority Order
 
 1. `Z-9`
-2. `Z-16`
-3. `Z-17`
-4. `Z-15`
-5. `Z-10`
+2. `Z-15`
+3. `Z-10`
+4. `Z-16`
+5. `Z-17`
 6. `Z-11`
 7. `Z-12`
 8. `Z-13`
-
-
-## Next Agent Prompt
-
-- Use local workspace state after `27a5289`.
-- Read `docs/handoffs/vibecode.md` first and keep `Z-9` open.
-- Respect the current assigner baseline from `runs/z9_effective_box_5epoch_validate`; do not revert it unless a new controlled probe beats that run and clears the minority-class gate.
-- Treat `runs/z16_nova_5epoch_real_validate/per_class_metrics.csv` as a rejected architecture probe: real `nova` collapsed to zero predictions and does not justify promotion.
-- Priority order for pickup:
-  - `Z-9` remains the active story.
-  - Consider `Z-17` next only because minority-class recall is still unresolved after the failed Z-16 probe.
-  - Keep `Z-15` and `Z-10` behind that gate.
-- If you continue with `Z-17`, run one controlled 10-epoch continuation-style probe from the best current 5-epoch candidate, compare against `runs/z9_effective_box_5epoch_validate`, and require standalone `validate.py` evidence with `per_class_metrics.csv`.
-- Promotion gate is unchanged: do not advance unless at least one of `ball`, `goalkeeper`, or `referee` reaches non-zero standalone validation recall.
