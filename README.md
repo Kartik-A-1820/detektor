@@ -114,6 +114,98 @@ The system samples your dataset and automatically chooses the appropriate mode.
 
 The codebase is intentionally lightweight and practical, with a bias toward single-machine workflows and modest GPUs such as the GTX 1650 Ti 4GB rather than distributed training or cloud-scale deployment.
 
+## Architecture
+
+Detektor is organized around a small set of CLI entrypoints and shared runtime modules. Training, evaluation, inference, serving, export, and reporting all reuse the same model factory, dataset plumbing, checkpoint utilities, and task-aware detection/segmentation logic.
+
+```mermaid
+flowchart TD
+    dataset["YOLO-style dataset<br/>images + labels + data.yaml"]
+
+    subgraph EntryPoints["CLI entrypoints"]
+        check["check_dataset.py"]
+        train["train.py"]
+        validate["validate.py"]
+        infer["infer.py"]
+        serve["serve.py"]
+        export["export.py / scripts.export_onnx"]
+        matrix["model_matrix.py"]
+        report["scripts.report"]
+        package["scripts.package_model"]
+    end
+
+    subgraph Core["Shared runtime modules"]
+        data["datasets/ + utils.data_config<br/>utils.task_detection + utils.collate"]
+        model["models.factory + models.chimera"]
+        losses["losses/"]
+        metrics["metrics/"]
+        auto["utils.auto_train_config<br/>utils.architecture_compatibility<br/>utils.vram"]
+        ckpt["utils.checkpoints + utils.artifacts"]
+        logs["utils.logging_utils + utils.reporting"]
+        post["utils.postprocess + utils.visualize<br/>utils.mask_ops + utils.box_ops"]
+    end
+
+    subgraph Outputs["Artifacts and runtime surfaces"]
+        runs["runs/ checkpoints + metrics + plots + summaries"]
+        api["FastAPI API<br/>api.schemas + api.inference + api.metrics"]
+        ui["Gradio UI<br/>ui.app"]
+        onnx["ONNX artifacts"]
+        packaged["Packaged model artifact"]
+    end
+
+    dataset --> check
+    dataset --> train
+    dataset --> validate
+    dataset --> matrix
+
+    check --> data
+    train --> data
+    validate --> data
+    infer --> data
+    matrix --> auto
+
+    train --> model
+    train --> losses
+    train --> auto
+    train --> ckpt
+    train --> logs
+
+    validate --> model
+    validate --> metrics
+    validate --> post
+    validate --> logs
+
+    infer --> model
+    infer --> post
+    infer --> ckpt
+
+    serve --> model
+    serve --> ckpt
+    serve --> api
+    serve --> ui
+
+    export --> model
+    export --> ckpt
+    export --> onnx
+
+    report --> logs
+    package --> ckpt
+
+    ckpt --> runs
+    logs --> runs
+    metrics --> runs
+    validate --> runs
+    infer --> runs
+    api --> runs
+    ui --> api
+    ckpt --> packaged
+```
+
+At a high level:
+- `train.py` is the main orchestration path for dataset loading, auto-configured runtime selection, model construction, loss computation, checkpointing, and report generation.
+- `validate.py`, `infer.py`, and `serve.py` reuse the same model and checkpoint stack so offline evaluation, CLI inference, API inference, and the Gradio UI stay aligned.
+- `model_matrix.py` sits alongside training as a hardware-aware planning tool that probes profile compatibility and can run real training sweeps across architecture profiles.
+
 ## Features
 
 ### Training & Optimization
