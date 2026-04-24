@@ -2,15 +2,20 @@ from __future__ import annotations
 
 import argparse
 import copy
+import io
 import logging
 import os
 import threading
+import time
+import uuid
+from collections import deque
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from pathlib import Path
-from typing import AsyncIterator, List, Optional
+from typing import Any, AsyncIterator, Dict, List, Optional
 
 import uvicorn
+import yaml
 from fastapi import FastAPI, File, HTTPException, Query, Request, UploadFile
 from fastapi.responses import JSONResponse
 
@@ -45,6 +50,10 @@ LOGGER = logging.getLogger("detektor.serve")
 
 # API version
 API_VERSION = "1.0.0"
+
+# Training job storage
+TRAINING_JOBS: Dict[str, Dict[str, Any]] = {}
+TRAINING_JOBS_LOCK = threading.RLock()
 
 
 @dataclass
@@ -447,6 +456,310 @@ def create_app(config: ServiceConfig) -> FastAPI:
         
         return response
 
+    # ------------------------------------------------------------------ #
+    #  Training endpoints                                                  #
+    # ------------------------------------------------------------------ #
+
+    @app.post("/v1/train/start", tags=["Training"])
+    async def start_training(request: Request) -> JSONResponse:
+        """Start a training run in a background thread. Returns job_id."""
+        try:
+            body = await request.json()
+        except Exception as exc:
+            return JSONResponse(status_code=400, content={"error": "Invalid JSON", "message": str(exc)})
+
+        data_yaml: Optional[str] = body.get("data_yaml")
+        config_path: Optional[str] = body.get("config_path")
+        epochs: int = int(body.get("epochs", 10))
+        batch_size: int = int(body.get("batch_size", 4))
+        lr: float = float(body.get("lr", 0.002))
+        model_profile: Optional[str] = body.get("model_profile")
+        focal_loss_gamma: float = float(body.get("focal_loss_gamma", 0.0))
+        out_dir: Optional[str] = body.get("out_dir")
+        run_val: bool = bool(body.get("run_val", False))
+
+        if not data_yaml:
+            return JSONResponse(status_code=400, content={"error": "Missing field", "message": "data_yaml is required"})
+
+        job_id = str(uuid.uuid4())
+        log_buffer: deque = deque(maxlen=500)
+
+        job: Dict[str, Any] = {
+            "job_id": job_id,
+            "status": "starting",
+            "log_buffer": log_buffer,
+            "metrics": {},
+            "out_dir": out_dir or "",
+            "started_at": time.time(),
+            "stop_requested": False,
+            "thread": None,
+        }
+
+        with TRAINING_JOBS_LOCK:
+            TRAINING_JOBS[job_id] = job
+
+        def _run_training() -> None:
+            try:
+                # Lazy import to avoid circular imports
+                from train import train as _train  # noqa: PLC0415
+
+                overrides: Dict[str, Any] = {
+                    "train": {
+                        "epochs": epochs,
+                        "batch_size": batch_size,
+                        "lr": lr,
+                    }
+                }
+                if model_profile:
+                    overrides["model"] = {"profile": model_profile}
+                if focal_loss_gamma != 0.0:
+                    overrides.setdefault("loss", {})["focal_loss_gamma"] = focal_loss_gamma
+                if out_dir:
+                    overrides.setdefault("train", {})["out_dir"] = out_dir
+
+                log_buffer.append(f"[INFO] Training job {job_id} started")
+                log_buffer.append(f"[INFO] data_yaml={data_yaml}, epochs={epochs}, batch_size={batch_size}, lr={lr}")
+
+                with TRAINING_JOBS_LOCK:
+                    TRAINING_JOBS[job_id]["status"] = "running"
+
+                summary = _train(
+                    config_path=config_path,
+                    data_yaml=data_yaml,
+                    overrides=overrides,
+                    run_val=run_val,
+                )
+
+                with TRAINING_JOBS_LOCK:
+                    TRAINING_JOBS[job_id]["status"] = "done"
+                    TRAINING_JOBS[job_id]["metrics"] = summary if isinstance(summary, dict) else {}
+                log_buffer.append("[INFO] Training completed successfully")
+
+            except Exception as exc:  # noqa: BLE001
+                with TRAINING_JOBS_LOCK:
+                    TRAINING_JOBS[job_id]["status"] = "failed"
+                    TRAINING_JOBS[job_id]["error"] = str(exc)
+                log_buffer.append(f"[ERROR] Training failed: {exc}")
+                LOGGER.exception("Training job %s failed", job_id)
+
+        thread = threading.Thread(target=_run_training, daemon=True, name=f"train-{job_id[:8]}")
+        with TRAINING_JOBS_LOCK:
+            TRAINING_JOBS[job_id]["thread"] = thread
+        thread.start()
+
+        return JSONResponse(content={"job_id": job_id, "status": "started", "out_dir": out_dir or ""})
+
+    @app.get("/v1/train/status/{job_id}", tags=["Training"])
+    async def get_training_status(job_id: str) -> JSONResponse:
+        """Get training job status and latest log lines."""
+        with TRAINING_JOBS_LOCK:
+            job = TRAINING_JOBS.get(job_id)
+
+        if job is None:
+            return JSONResponse(status_code=404, content={"error": "Not found", "message": f"Job {job_id} not found"})
+
+        log_tail = list(job["log_buffer"])[-20:]
+        return JSONResponse(content={
+            "job_id": job_id,
+            "status": job["status"],
+            "log_tail": log_tail,
+            "metrics": job.get("metrics", {}),
+            "out_dir": job.get("out_dir", ""),
+            "error": job.get("error"),
+        })
+
+    @app.post("/v1/train/stop/{job_id}", tags=["Training"])
+    async def stop_training(job_id: str) -> JSONResponse:
+        """Request cancellation of a running training job."""
+        with TRAINING_JOBS_LOCK:
+            job = TRAINING_JOBS.get(job_id)
+
+        if job is None:
+            return JSONResponse(status_code=404, content={"error": "Not found", "message": f"Job {job_id} not found"})
+
+        with TRAINING_JOBS_LOCK:
+            TRAINING_JOBS[job_id]["stop_requested"] = True
+            current_status = TRAINING_JOBS[job_id]["status"]
+
+        if current_status not in ("running", "starting"):
+            return JSONResponse(content={"job_id": job_id, "status": current_status, "message": "Job is not running"})
+
+        return JSONResponse(content={"job_id": job_id, "status": "stop_requested", "message": "Stop signal sent"})
+
+    # ------------------------------------------------------------------ #
+    #  Validation endpoint                                                 #
+    # ------------------------------------------------------------------ #
+
+    @app.post("/v1/validate/run", tags=["Validation"])
+    async def run_validation(request: Request) -> JSONResponse:
+        """Run validation synchronously and return metrics."""
+        try:
+            body = await request.json()
+        except Exception as exc:
+            return JSONResponse(status_code=400, content={"error": "Invalid JSON", "message": str(exc)})
+
+        weights: Optional[str] = body.get("weights")
+        data_yaml: Optional[str] = body.get("data_yaml")
+        conf_thresh: float = float(body.get("conf_thresh", 0.25))
+        iou_thresh: float = float(body.get("iou_thresh", 0.5))
+        output_dir: Optional[str] = body.get("output_dir")
+
+        # Fall back to active checkpoint if weights not provided
+        if not weights:
+            with MODEL_STORE.lock:
+                weights = MODEL_STORE.active_weights
+        if not weights:
+            return JSONResponse(status_code=400, content={"error": "Missing field", "message": "weights is required (no active checkpoint)"})
+
+        # Resolve a config path from the checkpoint or run dir
+        config_path: Optional[str] = None
+        with MODEL_STORE.lock:
+            run_dir = MODEL_STORE.run_dir
+        if run_dir:
+            candidate = Path(run_dir) / "config.yaml"
+            if candidate.exists():
+                config_path = str(candidate)
+
+        if not config_path:
+            # Try to find any config yaml near the weights file
+            weights_path = Path(weights)
+            for candidate in [
+                weights_path.parent / "config.yaml",
+                weights_path.parent.parent / "config.yaml",
+            ]:
+                if candidate.exists():
+                    config_path = str(candidate)
+                    break
+
+        if not config_path:
+            return JSONResponse(status_code=400, content={"error": "Missing config", "message": "Could not resolve config.yaml for validation"})
+
+        try:
+            from validate import validate as _validate  # noqa: PLC0415
+
+            metrics = _validate(
+                config_path=config_path,
+                data_yaml=data_yaml,
+                weights=weights,
+                conf_thresh=conf_thresh,
+                iou_thresh=iou_thresh,
+                output_dir=output_dir,
+            )
+            # Ensure JSON-serialisable
+            def _to_serialisable(obj: Any) -> Any:
+                if isinstance(obj, dict):
+                    return {k: _to_serialisable(v) for k, v in obj.items()}
+                if isinstance(obj, (list, tuple)):
+                    return [_to_serialisable(v) for v in obj]
+                try:
+                    import torch  # noqa: PLC0415
+                    if isinstance(obj, torch.Tensor):
+                        return obj.item() if obj.numel() == 1 else obj.tolist()
+                except ImportError:
+                    pass
+                try:
+                    import numpy as np  # noqa: PLC0415
+                    if isinstance(obj, np.ndarray):
+                        return obj.tolist()
+                    if isinstance(obj, (np.integer, np.floating)):
+                        return obj.item()
+                except ImportError:
+                    pass
+                return obj
+
+            return JSONResponse(content={"status": "ok", "metrics": _to_serialisable(metrics)})
+        except Exception as exc:  # noqa: BLE001
+            LOGGER.exception("Validation failed")
+            return JSONResponse(status_code=500, content={"error": "ValidationFailed", "message": str(exc)})
+
+    # ------------------------------------------------------------------ #
+    #  Dataset check endpoint                                              #
+    # ------------------------------------------------------------------ #
+
+    @app.post("/v1/dataset/check", tags=["Dataset"])
+    async def check_dataset_endpoint(request: Request) -> JSONResponse:
+        """Run dataset validation and return results."""
+        try:
+            body = await request.json()
+        except Exception as exc:
+            return JSONResponse(status_code=400, content={"error": "Invalid JSON", "message": str(exc)})
+
+        data_yaml: Optional[str] = body.get("data_yaml")
+        output_dir: str = body.get("output_dir", "reports")
+
+        if not data_yaml:
+            return JSONResponse(status_code=400, content={"error": "Missing field", "message": "data_yaml is required"})
+
+        data_yaml_path = Path(data_yaml)
+        if not data_yaml_path.exists():
+            return JSONResponse(status_code=400, content={"error": "Not found", "message": f"data_yaml not found: {data_yaml}"})
+
+        try:
+            # Lazy import
+            import yaml as _yaml  # noqa: PLC0415
+            from check_dataset import merge_results, validate_dataset_split  # noqa: PLC0415
+            from utils.dataset_validation import write_validation_summary  # noqa: PLC0415
+
+            with data_yaml_path.open("r") as fh:
+                data_config = _yaml.safe_load(fh)
+
+            num_classes = data_config.get("nc")
+            if num_classes is None:
+                return JSONResponse(status_code=400, content={"error": "Invalid YAML", "message": "'nc' not found in data_yaml"})
+
+            split_results = []
+            for split in ("train", "val"):
+                split_path_str = data_config.get(split)
+                if not split_path_str:
+                    continue
+                split_path = Path(split_path_str)
+                if split_path.name == "images":
+                    split_root = split_path.parent
+                else:
+                    split_root = split_path
+                images_dir = split_root / "images"
+                labels_dir = split_root / "labels"
+                result = validate_dataset_split(images_dir, labels_dir, num_classes, split)
+                split_results.append(result)
+
+            if not split_results:
+                return JSONResponse(status_code=400, content={"error": "No splits", "message": "No train/val splits found in data_yaml"})
+
+            merged = merge_results(split_results)
+
+            # Write reports
+            out_path = Path(output_dir)
+            write_validation_summary(merged, out_path, dataset_name="dataset")
+
+            # Serialise issues
+            issues = [
+                {
+                    "severity": issue.severity,
+                    "category": issue.category,
+                    "message": issue.message,
+                    "file": issue.file_path or "",
+                }
+                for issue in merged.issues
+            ]
+
+            summary = {
+                "total_images": merged.stats.total_images,
+                "total_labels": merged.stats.total_labels,
+                "total_annotations": merged.stats.total_annotations,
+                "empty_labels": merged.stats.empty_labels,
+                "corrupt_images": merged.stats.corrupt_images,
+                "has_errors": merged.has_errors,
+                "has_warnings": merged.has_warnings,
+                "num_issues": len(merged.issues),
+                "class_distribution": {str(k): v for k, v in merged.stats.class_distribution.items()},
+            }
+
+            return JSONResponse(content={"status": "ok", "summary": summary, "issues": issues})
+
+        except Exception as exc:  # noqa: BLE001
+            LOGGER.exception("Dataset check failed")
+            return JSONResponse(status_code=500, content={"error": "DatasetCheckFailed", "message": str(exc)})
+
     return app
 
 
@@ -624,6 +937,7 @@ def main() -> None:
             get_runtime_state=get_runtime_state,
             get_service_snapshot=get_service_snapshot,
             select_checkpoint=select_active_checkpoint,
+            backend_port=config.port,
         )
         app = gr.mount_gradio_app(
             app,

@@ -89,7 +89,19 @@ _UI_CSS = """
   font-weight: 700;
   margin-top: 6px;
 }
+.det-gate-open {
+  color: #2e7d32;
+  font-weight: 700;
+  font-size: 1.1rem;
+}
+.det-gate-blocked {
+  color: #c62828;
+  font-weight: 700;
+  font-size: 1.1rem;
+}
 """
+
+_MODEL_PROFILES = ["firefly", "comet", "nova", "pulsar", "quasar", "supernova"]
 
 
 class DetektorUIRuntime:
@@ -101,10 +113,16 @@ class DetektorUIRuntime:
         get_runtime_state: Callable[[], Dict[str, Any]],
         get_service_snapshot: Callable[[], Tuple[Any, Any]],
         select_checkpoint: Callable[[str], Dict[str, Any]],
+        backend_port: int = 8000,
     ) -> None:
         self._get_runtime_state = get_runtime_state
         self._get_service_snapshot = get_service_snapshot
         self._select_checkpoint = select_checkpoint
+        self._backend_port = backend_port
+
+    @property
+    def _local_base_url(self) -> str:
+        return f"http://127.0.0.1:{self._backend_port}"
 
     def refresh_dashboard(self) -> Tuple[Any, ...]:
         return _dashboard_outputs_from_state(self._get_runtime_state())
@@ -185,6 +203,65 @@ class DetektorUIRuntime:
         )
         return gallery, rows, summary, latency_text
 
+    # ------------------------------------------------------------------ #
+    #  Training / Validation / Dataset-check bridge methods               #
+    # ------------------------------------------------------------------ #
+
+    def start_training(
+        self,
+        data_yaml: str,
+        config_path: str,
+        epochs: int,
+        batch_size: int,
+        lr: float,
+        model_profile: str,
+        focal_loss_gamma: float,
+        out_dir: str,
+        run_val: bool,
+    ) -> Dict[str, Any]:
+        payload = {
+            "data_yaml": data_yaml,
+            "config_path": config_path or None,
+            "epochs": int(epochs),
+            "batch_size": int(batch_size),
+            "lr": float(lr),
+            "model_profile": model_profile or None,
+            "focal_loss_gamma": float(focal_loss_gamma),
+            "out_dir": out_dir or None,
+            "run_val": bool(run_val),
+        }
+        return _post_json(f"{self._local_base_url}/v1/train/start", payload)
+
+    def get_training_status(self, job_id: str) -> Dict[str, Any]:
+        return _get_json(f"{self._local_base_url}/v1/train/status/{job_id}")
+
+    def stop_training(self, job_id: str) -> Dict[str, Any]:
+        return _post_json(f"{self._local_base_url}/v1/train/stop/{job_id}", {})
+
+    def run_validation(
+        self,
+        weights: str,
+        data_yaml: str,
+        conf_thresh: float,
+        iou_thresh: float,
+        output_dir: str,
+    ) -> Dict[str, Any]:
+        payload = {
+            "weights": weights or None,
+            "data_yaml": data_yaml or None,
+            "conf_thresh": float(conf_thresh),
+            "iou_thresh": float(iou_thresh),
+            "output_dir": output_dir or None,
+        }
+        return _post_json(f"{self._local_base_url}/v1/validate/run", payload)
+
+    def check_dataset(self, data_yaml: str, output_dir: str) -> Dict[str, Any]:
+        payload = {
+            "data_yaml": data_yaml,
+            "output_dir": output_dir or "reports",
+        }
+        return _post_json(f"{self._local_base_url}/v1/dataset/check", payload)
+
 
 def _encode_multipart_formdata(
     fields: Dict[str, str],
@@ -213,6 +290,38 @@ def _encode_multipart_formdata(
 
     body.extend(f"--{boundary}--\r\n".encode("utf-8"))
     return bytes(body), f"multipart/form-data; boundary={boundary}"
+
+
+def _post_json(url: str, payload: Dict[str, Any], timeout: int = 120) -> Dict[str, Any]:
+    """POST a JSON body and return the parsed JSON response."""
+    body = json.dumps(payload).encode("utf-8")
+    req = Request(
+        url,
+        data=body,
+        headers={"Content-Type": "application/json", "Accept": "application/json"},
+        method="POST",
+    )
+    try:
+        with urlopen(req, timeout=timeout) as response:
+            return json.loads(response.read().decode("utf-8"))
+    except HTTPError as exc:
+        detail = exc.read().decode("utf-8", errors="replace")
+        raise RuntimeError(f"HTTP {exc.code}: {detail}") from exc
+    except URLError as exc:
+        raise RuntimeError(f"Request failed: {exc.reason}") from exc
+
+
+def _get_json(url: str, timeout: int = 30) -> Dict[str, Any]:
+    """GET a URL and return the parsed JSON response."""
+    req = Request(url, headers={"Accept": "application/json"}, method="GET")
+    try:
+        with urlopen(req, timeout=timeout) as response:
+            return json.loads(response.read().decode("utf-8"))
+    except HTTPError as exc:
+        detail = exc.read().decode("utf-8", errors="replace")
+        raise RuntimeError(f"HTTP {exc.code}: {detail}") from exc
+    except URLError as exc:
+        raise RuntimeError(f"Request failed: {exc.reason}") from exc
 
 
 def _post_json_multipart(
@@ -647,91 +756,519 @@ def _fmt_metric(value: Any) -> str:
     return f"{float(value):.4f}"
 
 
+# ------------------------------------------------------------------ #
+#  Training tab callbacks                                              #
+# ------------------------------------------------------------------ #
+
+def _start_training_remote(
+    backend_url: str,
+    data_yaml: str,
+    config_path: str,
+    epochs: int,
+    batch_size: int,
+    lr: float,
+    model_profile: str,
+    focal_loss_gamma: float,
+    out_dir: str,
+    run_val: bool,
+) -> Tuple[str, str]:
+    """Start training via remote backend. Returns (status_text, job_id)."""
+    if not data_yaml.strip():
+        return "Error: data_yaml is required.", ""
+    payload = {
+        "data_yaml": data_yaml.strip(),
+        "config_path": config_path.strip() or None,
+        "epochs": int(epochs),
+        "batch_size": int(batch_size),
+        "lr": float(lr),
+        "model_profile": model_profile or None,
+        "focal_loss_gamma": float(focal_loss_gamma),
+        "out_dir": out_dir.strip() or None,
+        "run_val": bool(run_val),
+    }
+    try:
+        resp = _post_json(f"{backend_url.rstrip('/')}/v1/train/start", payload)
+        job_id = resp.get("job_id", "")
+        return f"Training started. Job ID: {job_id}", job_id
+    except Exception as exc:  # noqa: BLE001
+        return f"Error starting training: {exc}", ""
+
+
+def _refresh_training_status_remote(
+    backend_url: str,
+    job_id: str,
+) -> Tuple[str, str, Dict[str, Any], Any]:
+    """Refresh training status. Returns (status_text, log_text, metrics_json, loss_plot)."""
+    if not job_id:
+        return "No active job.", "", {}, None
+    try:
+        resp = _get_json(f"{backend_url.rstrip('/')}/v1/train/status/{job_id}")
+        status = resp.get("status", "unknown")
+        log_tail = resp.get("log_tail", [])
+        metrics = resp.get("metrics", {})
+        log_text = "\n".join(log_tail[-30:])
+        status_text = f"Job {job_id[:8]}… | Status: {status}"
+        if resp.get("error"):
+            status_text += f" | Error: {resp['error']}"
+        loss_plot = _plot_live_loss(metrics)
+        return status_text, log_text, metrics, loss_plot
+    except Exception as exc:  # noqa: BLE001
+        return f"Error fetching status: {exc}", "", {}, None
+
+
+def _stop_training_remote(backend_url: str, job_id: str) -> str:
+    if not job_id:
+        return "No active job to stop."
+    try:
+        resp = _post_json(f"{backend_url.rstrip('/')}/v1/train/stop/{job_id}", {})
+        return f"Stop requested: {resp.get('message', resp.get('status', 'ok'))}"
+    except Exception as exc:  # noqa: BLE001
+        return f"Error stopping training: {exc}"
+
+
+def _plot_live_loss(metrics: Dict[str, Any]) -> Optional[Any]:
+    """Build a simple loss plot from training metrics dict."""
+    train_curve = metrics.get("train_curve") or []
+    if not train_curve:
+        return None
+    try:
+        steps = [row.get("step") for row in train_curve if row.get("step") is not None]
+        losses = [row.get("loss_total") for row in train_curve if row.get("loss_total") is not None]
+        if not steps or not losses:
+            return None
+        fig, ax = plt.subplots(figsize=(8, 3))
+        ax.plot(steps[: len(losses)], losses, color="#c25b2d", linewidth=2)
+        ax.set_title("Live Training Loss")
+        ax.set_xlabel("Step")
+        ax.set_ylabel("Loss")
+        ax.grid(alpha=0.2)
+        fig.tight_layout()
+        return fig
+    except Exception:  # noqa: BLE001
+        return None
+
+
+# ------------------------------------------------------------------ #
+#  Validation tab callbacks                                            #
+# ------------------------------------------------------------------ #
+
+def _run_validation_remote(
+    backend_url: str,
+    weights: str,
+    data_yaml: str,
+    conf_thresh: float,
+    iou_thresh: float,
+    output_dir: str,
+) -> Tuple[Dict[str, Any], List[List[Any]], str, str]:
+    """Run validation via remote backend. Returns (metrics_json, per_class_rows, status_text, gate_html)."""
+    payload = {
+        "weights": weights.strip() or None,
+        "data_yaml": data_yaml.strip() or None,
+        "conf_thresh": float(conf_thresh),
+        "iou_thresh": float(iou_thresh),
+        "output_dir": output_dir.strip() or None,
+    }
+    try:
+        resp = _post_json(f"{backend_url.rstrip('/')}/v1/validate/run", payload, timeout=300)
+        metrics = resp.get("metrics", {})
+        per_class = _extract_per_class_rows(metrics)
+        gate_html = _build_gate_html(metrics)
+        return metrics, per_class, "Validation complete.", gate_html
+    except Exception as exc:  # noqa: BLE001
+        return {"error": str(exc)}, [], f"Validation failed: {exc}", "<span class='det-gate-blocked'>GATE: BLOCKED (error)</span>"
+
+
+def _extract_per_class_rows(metrics: Dict[str, Any]) -> List[List[Any]]:
+    """Extract per-class metrics rows from a validation metrics dict."""
+    per_class = metrics.get("per_class") or metrics.get("per_class_metrics") or []
+    rows = []
+    if isinstance(per_class, list):
+        for entry in per_class:
+            if isinstance(entry, dict):
+                rows.append([
+                    entry.get("class_name", entry.get("class", "")),
+                    _fmt_metric(entry.get("precision")),
+                    _fmt_metric(entry.get("recall")),
+                    _fmt_metric(entry.get("f1")),
+                    _fmt_metric(entry.get("ap50")),
+                ])
+    elif isinstance(per_class, dict):
+        for class_name, class_metrics in per_class.items():
+            if isinstance(class_metrics, dict):
+                rows.append([
+                    class_name,
+                    _fmt_metric(class_metrics.get("precision")),
+                    _fmt_metric(class_metrics.get("recall")),
+                    _fmt_metric(class_metrics.get("f1")),
+                    _fmt_metric(class_metrics.get("ap50")),
+                ])
+    return rows
+
+
+def _build_gate_html(metrics: Dict[str, Any]) -> str:
+    """Build a promotion gate HTML snippet based on validation metrics."""
+    if not metrics or "error" in metrics:
+        return "<span class='det-gate-blocked'>GATE: BLOCKED (no metrics)</span>"
+
+    map50 = metrics.get("map50") or metrics.get("val_map50") or metrics.get("mAP50")
+    recall = metrics.get("recall") or metrics.get("val_recall")
+
+    try:
+        map50_val = float(map50) if map50 is not None else None
+        recall_val = float(recall) if recall is not None else None
+    except (TypeError, ValueError):
+        map50_val = None
+        recall_val = None
+
+    # Gate criteria: mAP50 >= 0.5 and recall >= 0.5
+    gate_open = (
+        map50_val is not None and map50_val >= 0.5
+        and (recall_val is None or recall_val >= 0.5)
+    )
+
+    map50_str = f"{map50_val:.4f}" if map50_val is not None else "n/a"
+    recall_str = f"{recall_val:.4f}" if recall_val is not None else "n/a"
+
+    if gate_open:
+        return (
+            f"<span class='det-gate-open'>✅ GATE: OPEN</span> "
+            f"<span style='color:var(--det-muted);font-size:0.9rem'>"
+            f"mAP50={map50_str} recall={recall_str}</span>"
+        )
+    return (
+        f"<span class='det-gate-blocked'>🚫 GATE: BLOCKED</span> "
+        f"<span style='color:var(--det-muted);font-size:0.9rem'>"
+        f"mAP50={map50_str} recall={recall_str} (need ≥0.5)</span>"
+    )
+
+
+# ------------------------------------------------------------------ #
+#  Dataset check tab callbacks                                         #
+# ------------------------------------------------------------------ #
+
+def _run_dataset_check_remote(
+    backend_url: str,
+    data_yaml: str,
+    output_dir: str,
+) -> Tuple[Dict[str, Any], List[List[Any]], str]:
+    """Run dataset check via remote backend. Returns (summary_json, issues_rows, status_text)."""
+    if not data_yaml.strip():
+        return {}, [], "Error: data_yaml is required."
+    payload = {
+        "data_yaml": data_yaml.strip(),
+        "output_dir": output_dir.strip() or "reports",
+    }
+    try:
+        resp = _post_json(f"{backend_url.rstrip('/')}/v1/dataset/check", payload, timeout=300)
+        summary = resp.get("summary", {})
+        issues = resp.get("issues", [])
+        rows = [
+            [
+                issue.get("severity", ""),
+                issue.get("category", ""),
+                issue.get("message", ""),
+                issue.get("file", ""),
+            ]
+            for issue in issues
+        ]
+        has_errors = summary.get("has_errors", False)
+        has_warnings = summary.get("has_warnings", False)
+        if has_errors:
+            status = f"Dataset check FAILED — {summary.get('num_issues', 0)} issue(s) found."
+        elif has_warnings:
+            status = f"Dataset check PASSED with warnings — {summary.get('num_issues', 0)} issue(s)."
+        else:
+            status = "Dataset check PASSED — no issues found."
+        return summary, rows, status
+    except Exception as exc:  # noqa: BLE001
+        return {"error": str(exc)}, [], f"Dataset check failed: {exc}"
+
+
 def build_interface(runtime: Optional[DetektorUIRuntime] = None) -> gr.Blocks:
     if runtime is None:
         return _build_remote_interface()
 
     with gr.Blocks(title="Detektor UI", css=_UI_CSS) as demo:
-        checkpoint_selector = gr.Dropdown(label="Model checkpoint", choices=[], value=None)
-        refresh_button = gr.Button("Refresh", variant="secondary")
-        overview_html = gr.HTML()
-        status_box = gr.Textbox(label="Runtime status", interactive=False)
+        with gr.Tabs():
+            # ---------------------------------------------------------- #
+            #  Tab 1: Inference                                            #
+            # ---------------------------------------------------------- #
+            with gr.Tab("Inference"):
+                checkpoint_selector = gr.Dropdown(label="Model checkpoint", choices=[], value=None)
+                refresh_button = gr.Button("Refresh", variant="secondary")
+                overview_html = gr.HTML()
+                status_box = gr.Textbox(label="Runtime status", interactive=False)
 
-        with gr.Row():
-            with gr.Column(scale=5):
-                upload_files = gr.Files(
-                    label="Upload or drag image files",
-                    type="filepath",
-                    file_types=sorted(IMAGE_EXTENSIONS),
-                )
-                folder_input = gr.Textbox(
-                    label="Folder path",
-                    placeholder=r"F:\data\images",
-                )
                 with gr.Row():
-                    conf_slider = gr.Slider(0.05, 0.95, value=0.25, step=0.01, label="Confidence")
-                    iou_slider = gr.Slider(0.1, 0.9, value=0.6, step=0.01, label="IoU")
+                    with gr.Column(scale=5):
+                        upload_files = gr.Files(
+                            label="Upload or drag image files",
+                            type="filepath",
+                            file_types=sorted(IMAGE_EXTENSIONS),
+                        )
+                        folder_input = gr.Textbox(
+                            label="Folder path",
+                            placeholder=r"F:\data\images",
+                        )
+                        with gr.Row():
+                            conf_slider = gr.Slider(0.05, 0.95, value=0.25, step=0.01, label="Confidence")
+                            iou_slider = gr.Slider(0.1, 0.9, value=0.6, step=0.01, label="IoU")
+                        with gr.Row():
+                            max_det_slider = gr.Slider(1, 300, value=100, step=1, label="Max detections")
+                            include_masks = gr.Checkbox(value=False, label="Render masks")
+                        run_button = gr.Button("Run Inference", variant="primary")
+                        latency_box = gr.Textbox(label="Inference summary", interactive=False)
+                    with gr.Column(scale=4):
+                        class_map_box = gr.Code(label="Class map", language="json", interactive=False)
+                        dataset_json = gr.JSON(label="Dataset details")
+                        training_json = gr.JSON(label="Training + checkpoint details")
+
+                gallery_output = gr.Gallery(label="Annotated predictions", height=520, preview=True, object_fit="contain")
+                batch_table = gr.Dataframe(
+                    headers=["Image", "Detections", "Summary"],
+                    datatype=["str", "number", "str"],
+                    interactive=False,
+                    label="Per-image summary",
+                )
+                prediction_json = gr.JSON(label="Prediction payload")
+
                 with gr.Row():
-                    max_det_slider = gr.Slider(1, 300, value=100, step=1, label="Max detections")
-                    include_masks = gr.Checkbox(value=False, label="Render masks")
-                run_button = gr.Button("Run Inference", variant="primary")
-                latency_box = gr.Textbox(label="Inference summary", interactive=False)
-            with gr.Column(scale=4):
-                class_map_box = gr.Code(label="Class map", language="json", interactive=False)
-                dataset_json = gr.JSON(label="Dataset details")
-                training_json = gr.JSON(label="Training + checkpoint details")
+                    train_plot = gr.Plot(label="Training curves")
+                    val_plot = gr.Plot(label="Validation curves")
 
-        gallery_output = gr.Gallery(label="Annotated predictions", height=520, preview=True, object_fit="contain")
-        batch_table = gr.Dataframe(
-            headers=["Image", "Detections", "Summary"],
-            datatype=["str", "number", "str"],
-            interactive=False,
-            label="Per-image summary",
-        )
-        prediction_json = gr.JSON(label="Prediction payload")
+                validation_table = gr.Dataframe(
+                    headers=["Epoch", "Precision", "Recall", "mAP50", "Mean IoU"],
+                    datatype=["number", "str", "str", "str", "str"],
+                    interactive=False,
+                    label="Validation history",
+                )
 
-        with gr.Row():
-            train_plot = gr.Plot(label="Training curves")
-            val_plot = gr.Plot(label="Validation curves")
+                with gr.Row():
+                    loss_total_img = gr.Image(label="Saved loss plot", type="filepath")
+                    loss_components_img = gr.Image(label="Saved loss components", type="filepath")
+                    learning_rate_img = gr.Image(label="Saved LR plot", type="filepath")
 
-        validation_table = gr.Dataframe(
-            headers=["Epoch", "Precision", "Recall", "mAP50", "Mean IoU"],
-            datatype=["number", "str", "str", "str", "str"],
-            interactive=False,
-            label="Validation history",
-        )
+                dashboard_outputs = [
+                    checkpoint_selector,
+                    overview_html,
+                    status_box,
+                    dataset_json,
+                    training_json,
+                    class_map_box,
+                    validation_table,
+                    train_plot,
+                    val_plot,
+                    loss_total_img,
+                    loss_components_img,
+                    learning_rate_img,
+                ]
 
-        with gr.Row():
-            loss_total_img = gr.Image(label="Saved loss plot", type="filepath")
-            loss_components_img = gr.Image(label="Saved loss components", type="filepath")
-            learning_rate_img = gr.Image(label="Saved LR plot", type="filepath")
+                demo.load(runtime.refresh_dashboard, outputs=dashboard_outputs)
+                refresh_button.click(runtime.refresh_dashboard, outputs=dashboard_outputs)
+                checkpoint_selector.change(runtime.set_checkpoint, inputs=[checkpoint_selector], outputs=dashboard_outputs)
+                run_button.click(
+                    runtime.run_gallery_inference,
+                    inputs=[upload_files, folder_input, conf_slider, iou_slider, max_det_slider, include_masks],
+                    outputs=[gallery_output, batch_table, prediction_json, latency_box],
+                )
 
-        dashboard_outputs = [
-            checkpoint_selector,
-            overview_html,
-            status_box,
-            dataset_json,
-            training_json,
-            class_map_box,
-            validation_table,
-            train_plot,
-            val_plot,
-            loss_total_img,
-            loss_components_img,
-            learning_rate_img,
-        ]
+            # ---------------------------------------------------------- #
+            #  Tab 2: Training                                             #
+            # ---------------------------------------------------------- #
+            with gr.Tab("Training"):
+                _build_training_tab_inprocess(runtime)
 
-        demo.load(runtime.refresh_dashboard, outputs=dashboard_outputs)
-        refresh_button.click(runtime.refresh_dashboard, outputs=dashboard_outputs)
-        checkpoint_selector.change(runtime.set_checkpoint, inputs=[checkpoint_selector], outputs=dashboard_outputs)
-        run_button.click(
-            runtime.run_gallery_inference,
-            inputs=[upload_files, folder_input, conf_slider, iou_slider, max_det_slider, include_masks],
-            outputs=[gallery_output, batch_table, prediction_json, latency_box],
-        )
+            # ---------------------------------------------------------- #
+            #  Tab 3: Validation                                           #
+            # ---------------------------------------------------------- #
+            with gr.Tab("Validation"):
+                _build_validation_tab_inprocess(runtime)
+
+            # ---------------------------------------------------------- #
+            #  Tab 4: Dataset Check                                        #
+            # ---------------------------------------------------------- #
+            with gr.Tab("Dataset Check"):
+                _build_dataset_check_tab_inprocess(runtime)
 
     demo.queue(default_concurrency_limit=1)
     return demo
+
+
+def _build_training_tab_inprocess(runtime: DetektorUIRuntime) -> None:
+    """Build the Training tab wired to the in-process runtime."""
+    job_id_state = gr.State("")
+
+    with gr.Row():
+        with gr.Column(scale=3):
+            tr_data_yaml = gr.Textbox(label="data_yaml path", placeholder="path/to/data.yaml")
+            tr_config_path = gr.Textbox(label="config_yaml path (optional)", placeholder="path/to/config.yaml")
+            with gr.Row():
+                tr_epochs = gr.Slider(1, 100, value=10, step=1, label="Epochs")
+                tr_batch_size = gr.Slider(1, 32, value=4, step=1, label="Batch size")
+            with gr.Row():
+                tr_lr = gr.Number(value=0.002, label="Learning rate")
+                tr_model_profile = gr.Dropdown(choices=_MODEL_PROFILES, value="nova", label="Model profile")
+            tr_focal_gamma = gr.Slider(0.0, 3.0, value=0.0, step=0.1, label="Focal loss gamma")
+            tr_out_dir = gr.Textbox(label="Output directory", placeholder="runs/train")
+            tr_run_val = gr.Checkbox(value=False, label="Run validation after training")
+            with gr.Row():
+                tr_start_btn = gr.Button("Start Training", variant="primary")
+                tr_stop_btn = gr.Button("Stop Training", variant="stop")
+                tr_refresh_btn = gr.Button("Refresh Status", variant="secondary")
+        with gr.Column(scale=4):
+            tr_status_box = gr.Textbox(label="Status", interactive=False)
+            tr_log_box = gr.Textbox(label="Training log (last 30 lines)", lines=15, interactive=False)
+            tr_metrics_json = gr.JSON(label="Metrics")
+            tr_loss_plot = gr.Plot(label="Live loss plot")
+
+    def _start(data_yaml, config_path, epochs, batch_size, lr, model_profile, focal_gamma, out_dir, run_val):
+        try:
+            resp = runtime.start_training(
+                data_yaml=data_yaml,
+                config_path=config_path,
+                epochs=int(epochs),
+                batch_size=int(batch_size),
+                lr=float(lr),
+                model_profile=model_profile,
+                focal_loss_gamma=float(focal_gamma),
+                out_dir=out_dir,
+                run_val=bool(run_val),
+            )
+            job_id = resp.get("job_id", "")
+            return f"Training started. Job ID: {job_id}", job_id
+        except Exception as exc:  # noqa: BLE001
+            return f"Error: {exc}", ""
+
+    def _refresh(job_id):
+        if not job_id:
+            return "No active job.", "", {}, None
+        try:
+            resp = runtime.get_training_status(job_id)
+            status = resp.get("status", "unknown")
+            log_tail = resp.get("log_tail", [])
+            metrics = resp.get("metrics", {})
+            log_text = "\n".join(log_tail[-30:])
+            status_text = f"Job {job_id[:8]}… | Status: {status}"
+            if resp.get("error"):
+                status_text += f" | Error: {resp['error']}"
+            return status_text, log_text, metrics, _plot_live_loss(metrics)
+        except Exception as exc:  # noqa: BLE001
+            return f"Error: {exc}", "", {}, None
+
+    def _stop(job_id):
+        if not job_id:
+            return "No active job to stop."
+        try:
+            resp = runtime.stop_training(job_id)
+            return f"Stop requested: {resp.get('message', resp.get('status', 'ok'))}"
+        except Exception as exc:  # noqa: BLE001
+            return f"Error: {exc}"
+
+    tr_start_btn.click(
+        _start,
+        inputs=[tr_data_yaml, tr_config_path, tr_epochs, tr_batch_size, tr_lr, tr_model_profile, tr_focal_gamma, tr_out_dir, tr_run_val],
+        outputs=[tr_status_box, job_id_state],
+    )
+    tr_refresh_btn.click(
+        _refresh,
+        inputs=[job_id_state],
+        outputs=[tr_status_box, tr_log_box, tr_metrics_json, tr_loss_plot],
+    )
+    tr_stop_btn.click(
+        _stop,
+        inputs=[job_id_state],
+        outputs=[tr_status_box],
+    )
+
+
+def _build_validation_tab_inprocess(runtime: DetektorUIRuntime) -> None:
+    """Build the Validation tab wired to the in-process runtime."""
+    with gr.Row():
+        with gr.Column(scale=3):
+            val_weights = gr.Textbox(label="Weights path (leave blank for active checkpoint)", placeholder="path/to/model.pt")
+            val_data_yaml = gr.Textbox(label="data_yaml path", placeholder="path/to/data.yaml")
+            with gr.Row():
+                val_conf = gr.Slider(0.05, 0.95, value=0.25, step=0.01, label="Confidence threshold")
+                val_iou = gr.Slider(0.1, 0.9, value=0.5, step=0.01, label="IoU threshold")
+            val_out_dir = gr.Textbox(label="Output directory", placeholder="runs/val")
+            val_run_btn = gr.Button("Run Validation", variant="primary")
+            val_status_box = gr.Textbox(label="Status", interactive=False)
+        with gr.Column(scale=4):
+            val_gate_html = gr.HTML(label="Promotion gate")
+            val_metrics_json = gr.JSON(label="Metrics")
+            val_per_class_table = gr.Dataframe(
+                headers=["Class", "Precision", "Recall", "F1", "AP50"],
+                datatype=["str", "str", "str", "str", "str"],
+                interactive=False,
+                label="Per-class metrics",
+            )
+
+    def _run_val(weights, data_yaml, conf, iou, out_dir):
+        try:
+            resp = runtime.run_validation(
+                weights=weights,
+                data_yaml=data_yaml,
+                conf_thresh=float(conf),
+                iou_thresh=float(iou),
+                output_dir=out_dir,
+            )
+            metrics = resp.get("metrics", resp)
+            per_class = _extract_per_class_rows(metrics)
+            gate_html = _build_gate_html(metrics)
+            return metrics, per_class, "Validation complete.", gate_html
+        except Exception as exc:  # noqa: BLE001
+            return {"error": str(exc)}, [], f"Validation failed: {exc}", "<span class='det-gate-blocked'>GATE: BLOCKED (error)</span>"
+
+    val_run_btn.click(
+        _run_val,
+        inputs=[val_weights, val_data_yaml, val_conf, val_iou, val_out_dir],
+        outputs=[val_metrics_json, val_per_class_table, val_status_box, val_gate_html],
+    )
+
+
+def _build_dataset_check_tab_inprocess(runtime: DetektorUIRuntime) -> None:
+    """Build the Dataset Check tab wired to the in-process runtime."""
+    with gr.Row():
+        with gr.Column(scale=3):
+            dc_data_yaml = gr.Textbox(label="data_yaml path", placeholder="path/to/data.yaml")
+            dc_out_dir = gr.Textbox(label="Output directory", placeholder="reports", value="reports")
+            dc_run_btn = gr.Button("Run Check", variant="primary")
+            dc_status_box = gr.Textbox(label="Status", interactive=False)
+        with gr.Column(scale=4):
+            dc_summary_json = gr.JSON(label="Summary")
+            dc_issues_table = gr.Dataframe(
+                headers=["Severity", "Category", "Message", "File"],
+                datatype=["str", "str", "str", "str"],
+                interactive=False,
+                label="Issues",
+            )
+
+    def _run_check(data_yaml, out_dir):
+        try:
+            resp = runtime.check_dataset(data_yaml=data_yaml, output_dir=out_dir)
+            summary = resp.get("summary", {})
+            issues = resp.get("issues", [])
+            rows = [
+                [i.get("severity", ""), i.get("category", ""), i.get("message", ""), i.get("file", "")]
+                for i in issues
+            ]
+            has_errors = summary.get("has_errors", False)
+            has_warnings = summary.get("has_warnings", False)
+            if has_errors:
+                status = f"Dataset check FAILED — {summary.get('num_issues', 0)} issue(s) found."
+            elif has_warnings:
+                status = f"Dataset check PASSED with warnings — {summary.get('num_issues', 0)} issue(s)."
+            else:
+                status = "Dataset check PASSED — no issues found."
+            return summary, rows, status
+        except Exception as exc:  # noqa: BLE001
+            return {"error": str(exc)}, [], f"Dataset check failed: {exc}"
+
+    dc_run_btn.click(
+        _run_check,
+        inputs=[dc_data_yaml, dc_out_dir],
+        outputs=[dc_summary_json, dc_issues_table, dc_status_box],
+    )
 
 
 def _build_remote_interface() -> gr.Blocks:
@@ -745,38 +1282,139 @@ def _build_remote_interface() -> gr.Blocks:
         backend_input = gr.Textbox(value=DEFAULT_BACKEND_URL, label="Backend URL")
         class_map_input = gr.Textbox(label="Class map JSON", placeholder='{"0":"player"}')
 
-        with gr.Tab("Single Image"):
-            single_image = gr.Image(type="pil", label="Upload image")
-            conf_slider = gr.Slider(0.05, 0.95, value=0.25, step=0.01, label="Confidence")
-            iou_slider = gr.Slider(0.1, 0.9, value=0.6, step=0.01, label="IoU")
-            max_det_slider = gr.Slider(1, 300, value=100, step=1, label="Max detections")
-            include_masks_chk = gr.Checkbox(value=False, label="Render masks")
-            run_button = gr.Button("Run Inference", variant="primary")
-            annotated_output = gr.Image(label="Annotated image", type="pil")
-            table_output = gr.Dataframe(headers=["#", "Class", "Score"], interactive=False, label="Detections")
-            json_output = gr.JSON(label="Raw JSON response")
-            latency_output = gr.Textbox(label="Latency", interactive=False)
-            run_button.click(
-                run_single_inference,
-                inputs=[single_image, backend_input, conf_slider, iou_slider, max_det_slider, include_masks_chk, class_map_input],
-                outputs=[annotated_output, table_output, json_output, latency_output],
-            )
+        with gr.Tabs():
+            with gr.Tab("Single Image"):
+                single_image = gr.Image(type="pil", label="Upload image")
+                conf_slider = gr.Slider(0.05, 0.95, value=0.25, step=0.01, label="Confidence")
+                iou_slider = gr.Slider(0.1, 0.9, value=0.6, step=0.01, label="IoU")
+                max_det_slider = gr.Slider(1, 300, value=100, step=1, label="Max detections")
+                include_masks_chk = gr.Checkbox(value=False, label="Render masks")
+                run_button = gr.Button("Run Inference", variant="primary")
+                annotated_output = gr.Image(label="Annotated image", type="pil")
+                table_output = gr.Dataframe(headers=["#", "Class", "Score"], interactive=False, label="Detections")
+                json_output = gr.JSON(label="Raw JSON response")
+                latency_output = gr.Textbox(label="Latency", interactive=False)
+                run_button.click(
+                    run_single_inference,
+                    inputs=[single_image, backend_input, conf_slider, iou_slider, max_det_slider, include_masks_chk, class_map_input],
+                    outputs=[annotated_output, table_output, json_output, latency_output],
+                )
 
-        with gr.Tab("Batch"):
-            batch_images = gr.Files(label="Upload multiple images", type="filepath")
-            batch_conf = gr.Slider(0.05, 0.95, value=0.25, step=0.01, label="Confidence")
-            batch_iou = gr.Slider(0.1, 0.9, value=0.6, step=0.01, label="IoU")
-            batch_max_det = gr.Slider(1, 300, value=100, step=1, label="Max detections per image")
-            batch_masks = gr.Checkbox(value=False, label="Render masks")
-            batch_button = gr.Button("Run Batch Inference")
-            gallery_output = gr.Gallery(label="Annotated results", height=520)
-            batch_json_output = gr.JSON(label="Raw batch JSON response")
-            batch_latency_output = gr.Textbox(label="Batch latency", interactive=False)
-            batch_button.click(
-                run_batch_inference,
-                inputs=[batch_images, backend_input, batch_conf, batch_iou, batch_max_det, batch_masks, class_map_input],
-                outputs=[gallery_output, batch_json_output, batch_latency_output],
-            )
+            with gr.Tab("Batch"):
+                batch_images = gr.Files(label="Upload multiple images", type="filepath")
+                batch_conf = gr.Slider(0.05, 0.95, value=0.25, step=0.01, label="Confidence")
+                batch_iou = gr.Slider(0.1, 0.9, value=0.6, step=0.01, label="IoU")
+                batch_max_det = gr.Slider(1, 300, value=100, step=1, label="Max detections per image")
+                batch_masks = gr.Checkbox(value=False, label="Render masks")
+                batch_button = gr.Button("Run Batch Inference")
+                gallery_output = gr.Gallery(label="Annotated results", height=520)
+                batch_json_output = gr.JSON(label="Raw batch JSON response")
+                batch_latency_output = gr.Textbox(label="Batch latency", interactive=False)
+                batch_button.click(
+                    run_batch_inference,
+                    inputs=[batch_images, backend_input, batch_conf, batch_iou, batch_max_det, batch_masks, class_map_input],
+                    outputs=[gallery_output, batch_json_output, batch_latency_output],
+                )
+
+            # ---------------------------------------------------------- #
+            #  Training tab (remote)                                       #
+            # ---------------------------------------------------------- #
+            with gr.Tab("Training"):
+                job_id_state = gr.State("")
+
+                with gr.Row():
+                    with gr.Column(scale=3):
+                        tr_data_yaml = gr.Textbox(label="data_yaml path", placeholder="path/to/data.yaml")
+                        tr_config_path = gr.Textbox(label="config_yaml path (optional)", placeholder="path/to/config.yaml")
+                        with gr.Row():
+                            tr_epochs = gr.Slider(1, 100, value=10, step=1, label="Epochs")
+                            tr_batch_size = gr.Slider(1, 32, value=4, step=1, label="Batch size")
+                        with gr.Row():
+                            tr_lr = gr.Number(value=0.002, label="Learning rate")
+                            tr_model_profile = gr.Dropdown(choices=_MODEL_PROFILES, value="nova", label="Model profile")
+                        tr_focal_gamma = gr.Slider(0.0, 3.0, value=0.0, step=0.1, label="Focal loss gamma")
+                        tr_out_dir = gr.Textbox(label="Output directory", placeholder="runs/train")
+                        tr_run_val = gr.Checkbox(value=False, label="Run validation after training")
+                        with gr.Row():
+                            tr_start_btn = gr.Button("Start Training", variant="primary")
+                            tr_stop_btn = gr.Button("Stop Training", variant="stop")
+                            tr_refresh_btn = gr.Button("Refresh Status", variant="secondary")
+                    with gr.Column(scale=4):
+                        tr_status_box = gr.Textbox(label="Status", interactive=False)
+                        tr_log_box = gr.Textbox(label="Training log (last 30 lines)", lines=15, interactive=False)
+                        tr_metrics_json = gr.JSON(label="Metrics")
+                        tr_loss_plot = gr.Plot(label="Live loss plot")
+
+                tr_start_btn.click(
+                    _start_training_remote,
+                    inputs=[backend_input, tr_data_yaml, tr_config_path, tr_epochs, tr_batch_size, tr_lr, tr_model_profile, tr_focal_gamma, tr_out_dir, tr_run_val],
+                    outputs=[tr_status_box, job_id_state],
+                )
+                tr_refresh_btn.click(
+                    _refresh_training_status_remote,
+                    inputs=[backend_input, job_id_state],
+                    outputs=[tr_status_box, tr_log_box, tr_metrics_json, tr_loss_plot],
+                )
+                tr_stop_btn.click(
+                    _stop_training_remote,
+                    inputs=[backend_input, job_id_state],
+                    outputs=[tr_status_box],
+                )
+
+            # ---------------------------------------------------------- #
+            #  Validation tab (remote)                                     #
+            # ---------------------------------------------------------- #
+            with gr.Tab("Validation"):
+                with gr.Row():
+                    with gr.Column(scale=3):
+                        val_weights = gr.Textbox(label="Weights path (leave blank for active checkpoint)", placeholder="path/to/model.pt")
+                        val_data_yaml = gr.Textbox(label="data_yaml path", placeholder="path/to/data.yaml")
+                        with gr.Row():
+                            val_conf = gr.Slider(0.05, 0.95, value=0.25, step=0.01, label="Confidence threshold")
+                            val_iou = gr.Slider(0.1, 0.9, value=0.5, step=0.01, label="IoU threshold")
+                        val_out_dir = gr.Textbox(label="Output directory", placeholder="runs/val")
+                        val_run_btn = gr.Button("Run Validation", variant="primary")
+                        val_status_box = gr.Textbox(label="Status", interactive=False)
+                    with gr.Column(scale=4):
+                        val_gate_html = gr.HTML(label="Promotion gate")
+                        val_metrics_json = gr.JSON(label="Metrics")
+                        val_per_class_table = gr.Dataframe(
+                            headers=["Class", "Precision", "Recall", "F1", "AP50"],
+                            datatype=["str", "str", "str", "str", "str"],
+                            interactive=False,
+                            label="Per-class metrics",
+                        )
+
+                val_run_btn.click(
+                    _run_validation_remote,
+                    inputs=[backend_input, val_weights, val_data_yaml, val_conf, val_iou, val_out_dir],
+                    outputs=[val_metrics_json, val_per_class_table, val_status_box, val_gate_html],
+                )
+
+            # ---------------------------------------------------------- #
+            #  Dataset Check tab (remote)                                  #
+            # ---------------------------------------------------------- #
+            with gr.Tab("Dataset Check"):
+                with gr.Row():
+                    with gr.Column(scale=3):
+                        dc_data_yaml = gr.Textbox(label="data_yaml path", placeholder="path/to/data.yaml")
+                        dc_out_dir = gr.Textbox(label="Output directory", placeholder="reports", value="reports")
+                        dc_run_btn = gr.Button("Run Check", variant="primary")
+                        dc_status_box = gr.Textbox(label="Status", interactive=False)
+                    with gr.Column(scale=4):
+                        dc_summary_json = gr.JSON(label="Summary")
+                        dc_issues_table = gr.Dataframe(
+                            headers=["Severity", "Category", "Message", "File"],
+                            datatype=["str", "str", "str", "str"],
+                            interactive=False,
+                            label="Issues",
+                        )
+
+                dc_run_btn.click(
+                    _run_dataset_check_remote,
+                    inputs=[backend_input, dc_data_yaml, dc_out_dir],
+                    outputs=[dc_summary_json, dc_issues_table, dc_status_box],
+                )
 
     demo.queue(default_concurrency_limit=1)
     return demo

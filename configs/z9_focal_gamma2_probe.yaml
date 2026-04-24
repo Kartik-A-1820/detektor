@@ -1,0 +1,81 @@
+device: cuda
+seed: 42
+deterministic: false
+data:
+  format: yolo
+  train: F:\data\train
+  val: F:\data\valid
+  num_classes: 4
+  names:
+  - ball
+  - goalkeeper
+  - player
+  - referee
+train:
+  img_size: 512
+  epochs: 5
+  batch_size: 4
+  num_workers: 0
+  lr: 0.002
+  weight_decay: 0.05
+  optimizer: adamw
+  scheduler: cosine
+  warmup_epochs: 1
+  momentum: 0.937
+  amp: false
+  grad_accum: 2
+  vram_cap: 0.8
+  conf_thresh: 0.25
+  iou_thresh: 0.6
+  auto_tune: false
+  maximize_batch_size: false
+augment:
+  enabled: true
+  hsv_h: 0.015
+  hsv_s: 0.7
+  hsv_v: 0.4
+  fliplr: 0.5
+  flipud: 0.02
+  translate: 0.12
+  scale: 0.35
+  mosaic: 0.85
+  cutmix: 0.2
+  random_cut: 0.4
+  random_cut_holes: 2
+  random_cut_scale: 0.3
+loss:
+  cls: bce
+  box: ciou
+  obj: bce
+  seg: bce_dice
+  focal_loss_gamma: 2.0
+model:
+  profile: comet
+  display_name: Comet
+  stem_channels: 24
+  backbone_channels:
+  - 32
+  - 64
+  - 96
+  - 128
+  backbone_depths:
+  - 1
+  - 1
+  - 2
+  - 2
+  neck_channels:
+  - 64
+  - 96
+  - 128
+  head_feat_channels: 64
+  proto_k: 20
+logging:
+  out_dir: runs/z9_focal_gamma2_5epoch
+smart_training:
+  enabled: true
+  max_attempts: 4
+  min_batch_size: 1
+  min_img_size: 256
+  min_lr: 0.00025
+  non_finite_patience: 2
+  base_out_dir: runs/z9_focal_gamma2_5epoch

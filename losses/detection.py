@@ -284,13 +284,15 @@ class DetectionLoss(nn.Module):
         box_weight_current = self.box_weight * warmup_factor
         
         # Compute classification loss with sanitization
-        # Use mean instead of sum for better scaling
-        # Optionally apply focal loss to down-weight easy negatives and focus on hard/minority examples
+        # Optionally apply focal loss to down-weight easy negatives and focus on hard/minority examples.
+        # The focal weights are normalized so the loss magnitude stays comparable to BCE regardless of gamma.
         if self.focal_loss_gamma > 0.0:
             bce_raw = F.binary_cross_entropy_with_logits(pred_cls, cls_target, reduction="none")
             p_t = torch.exp(-bce_raw)
             focal_weight = (1.0 - p_t).pow(self.focal_loss_gamma)
-            loss_cls_raw = (focal_weight * bce_raw).mean()
+            # Normalize by mean focal weight so scale stays comparable to plain BCE
+            weight_norm = focal_weight.detach().mean().clamp(min=1e-6)
+            loss_cls_raw = (focal_weight * bce_raw / weight_norm).mean()
         else:
             loss_cls_raw = F.binary_cross_entropy_with_logits(pred_cls, cls_target, reduction="mean")
         loss_cls = sanitize_tensor(loss_cls_raw, name="loss_cls")
