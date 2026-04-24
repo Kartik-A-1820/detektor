@@ -1,0 +1,5 @@
+names:
+  0: ball
+nc: 1
+train: F:\detektor\codex_verify_auto_train_config\toy_dataset\train\images
+val: F:\detektor\codex_verify_auto_train_config\toy_dataset\val\images

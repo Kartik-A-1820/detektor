@@ -1,0 +1,8 @@
+data:
+  names:
+  - wrong
+  num_classes: 99
+  train: F:/wrong/train
+  val: F:/wrong/val
+logging:
+  out_dir: runs/explicit_data_test
