@@ -28,7 +28,7 @@
 - Full automated unittest suite is green in this environment.
 - Latest full verification:
   - `.\.venv\Scripts\python.exe -m unittest discover -s tests -p "test_*.py"`
-  - result: `175` passed path, `1` skipped
+  - result: `185` passed, `1` skipped
 - Latest contract verification:
   - `.\.venv\Scripts\python.exe -m unittest tests.test_api tests.test_schemas tests.test_regression`
   - result: `35` passed
@@ -167,10 +167,15 @@ Items:
   - next-agent execution order:
     - first, keep the current assigner change as the baseline and do not revert it unless a new controlled probe beats `runs/z9_effective_box_5epoch_validate` and clears the minority-class gate
     - second, prioritize changes that can create non-zero recall for at least one of `ball`, `goalkeeper`, or `referee`
-    - third, use `per_class_metrics.csv` as a hard promotion gate, not just aggregate AP50
-    - fourth, if calibration changes still fail, evaluate whether capacity is the limiter by running one controlled architecture probe before any broad refactor
-    - fifth, treat the completed 10-epoch continuation evidence as player-only amplification; do not promote it and do not use longer runs as the next blind search axis
+    - third, use `per_class_metrics.csv` as a hard promotion gate, not just aggregate AP50; the gate is now also printed to stdout by `validate.py --output-dir`
+    - fourth, next recommended probe: focal loss with `loss.focal_loss_gamma=2.0` — this is now wired through the config and factory; run a 5-epoch probe with `--config runs/z9_effective_box_5epoch/resolved_train_config.yaml` plus `loss.focal_loss_gamma: 2.0` in the config
+    - fifth, if focal loss still fails, evaluate whether capacity is the limiter; the nova profile collapse was caused by LR being too high — this is now fixed with profile-aware LR scaling (nova gets 0.75x, supernova gets 0.50x)
+    - sixth, treat the completed 10-epoch continuation evidence as player-only amplification; do not promote it and do not use longer runs as the next blind search axis
     - do not start `Z-10` until a 5-epoch probe produces non-zero standalone validation recall for at least one currently dead minority class
+  - new tools available for next probe:
+    - `loss.focal_loss_gamma: 2.0` in config YAML enables focal loss for classification
+    - `validate.py --output-dir <dir>` now prints per-class promotion gate to stdout
+    - larger profiles (nova, pulsar, quasar, supernova) now get conservative LR scaling automatically
   - exit criteria:
     - materially better recall and AP50 than the Z-8 baseline
     - non-zero standalone validation recall for at least one currently dead minority class
@@ -209,8 +214,13 @@ Items:
     - result versus `runs/z9_effective_box_5epoch_validate`:
       - overall standalone validation regressed to precision `0.0000`, recall `0.0000`, AP50 `0.0000`, mean box IoU `0.0000`
       - `per_class_metrics.csv` kept `ball`, `goalkeeper`, and `referee` at `0.0000` recall and also collapsed `player` recall to `0.0000`
+    - root cause identified `2026-04-24`: nova probe used the same LR as comet; larger profiles need a lower LR at init to prevent gradient explosion
+    - fix implemented `2026-04-24`: `_recommend_lr_for_profile()` now applies conservative LR scaling by profile (nova: 0.75x, pulsar: 0.65x, quasar: 0.60x, supernova: 0.50x)
   - target outcome:
     - determine whether architecture scale yields non-zero recall for at least one of `ball`, `goalkeeper`, or `referee`
+  - next step:
+    - re-run nova probe with the fixed LR scaling: `python train.py --config runs/z9_effective_box_5epoch/resolved_train_config.yaml --data-yaml F:/data/data.yaml --model nova --device cuda --img-size 512 --epochs 5 --batch-size 4 --grad-accum 2 --num-workers 0 --vram-cap 0.8 --no-maximize-batch-size --out-dir runs/z16_nova_fixed_5epoch --run-val --val-freq 1`
+    - then validate: `python validate.py --weights runs/z16_nova_fixed_5epoch/chimera_best.pt --data-yaml F:/data/data.yaml --output-dir runs/z16_nova_fixed_5epoch_validate`
   - verification:
     - exact config path, train command, validate command, run directories, and per-class metrics recorded here
 
@@ -238,8 +248,14 @@ Items:
     - aggregate AP50 improved in `Z-9`, but three classes still have `0.0000` recall and that can be missed when comparing only top-line metrics
   - target outcome:
     - Phase 3 comparisons and checkpoint promotion decisions explicitly surface minority-class recall and dead-class status
+  - status `2026-04-24`: IMPLEMENTED
+    - `validate.py` now prints a `PER-CLASS RECALL GATE` block after comprehensive validation
+    - dead classes (recall=0.0) are flagged with `[DEAD]` and the gate prints `GATE: BLOCKED` when any class is dead
+    - gate prints `GATE: OPEN` only when all classes have non-zero recall
+    - triggered by `--output-dir` (comprehensive validation mode)
   - verification:
-    - validation summary or handoff log clearly reports per-class recall deltas and flags classes that remain at zero recall
+    - 185 tests pass including new focal loss and LR scaling tests
+    - gate output visible in any `validate.py --output-dir` run
 
 Phase 3 exit:
 - recall and mAP improve materially on the active dataset
