@@ -62,6 +62,14 @@ class ChimeraODIS(nn.Module):
             proto_k=proto_k,
         )
         detection_loss_cfg = dict(detection_loss_cfg or {})
+        # Parse per-class positive weights from config
+        cls_pos_weights_raw = detection_loss_cfg.get("cls_pos_weights")
+        cls_pos_weights: list[float] | None = None
+        if cls_pos_weights_raw is not None:
+            try:
+                cls_pos_weights = [float(w) for w in cls_pos_weights_raw]
+            except (TypeError, ValueError):
+                cls_pos_weights = None
         self.detection_loss = DetectionLoss(
             num_classes=num_classes,
             cls_weight=float(detection_loss_cfg.get("cls_weight", 0.5)),
@@ -70,6 +78,7 @@ class ChimeraODIS(nn.Module):
             center_radius=float(detection_loss_cfg.get("center_radius", 2.5)),
             label_smoothing=float(detection_loss_cfg.get("label_smoothing", 0.0)),
             focal_loss_gamma=float(detection_loss_cfg.get("focal_loss_gamma", 0.0)),
+            cls_pos_weights=cls_pos_weights,
         )
         self.segmentation_loss = SegmentationLoss()
         self.mask_weight = mask_weight

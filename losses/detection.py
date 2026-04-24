@@ -160,6 +160,7 @@ class DetectionLoss(nn.Module):
     - Label smoothing for classification (reduces overconfidence)
     - Balanced loss weights optimized for stability
     - Optional focal loss for classification (helps minority class recall)
+    - Optional per-class positive weights for classification (upweights minority classes)
     """
 
     def __init__(
@@ -171,6 +172,7 @@ class DetectionLoss(nn.Module):
         center_radius: float = 2.5,
         label_smoothing: float = 0.0,  # Label smoothing epsilon
         focal_loss_gamma: float = 0.0,  # Focal loss gamma; 0.0 disables focal loss
+        cls_pos_weights: list[float] | None = None,  # Per-class positive weights for BCE
     ) -> None:
         super().__init__()
         self.num_classes = num_classes
@@ -180,6 +182,16 @@ class DetectionLoss(nn.Module):
         self.label_smoothing = label_smoothing
         self.focal_loss_gamma = focal_loss_gamma
         self.assigner = CenterPriorAssigner(center_radius=center_radius)
+        
+        # Per-class positive weights: upweight minority classes in BCE
+        # Shape: [num_classes] — each value is the pos_weight for that class
+        if cls_pos_weights is not None:
+            self.register_buffer(
+                "cls_pos_weights",
+                torch.tensor(cls_pos_weights, dtype=torch.float32),
+            )
+        else:
+            self.cls_pos_weights = None
         
         # Warmup tracking
         self.warmup_epochs = 3
@@ -285,6 +297,7 @@ class DetectionLoss(nn.Module):
         
         # Compute classification loss with sanitization
         # Optionally apply focal loss to down-weight easy negatives and focus on hard/minority examples.
+        # Optionally apply per-class positive weights to upweight minority classes in BCE.
         # The focal weights are normalized so the loss magnitude stays comparable to BCE regardless of gamma.
         if self.focal_loss_gamma > 0.0:
             bce_raw = F.binary_cross_entropy_with_logits(pred_cls, cls_target, reduction="none")
@@ -293,6 +306,13 @@ class DetectionLoss(nn.Module):
             # Normalize by mean focal weight so scale stays comparable to plain BCE
             weight_norm = focal_weight.detach().mean().clamp(min=1e-6)
             loss_cls_raw = (focal_weight * bce_raw / weight_norm).mean()
+        elif self.cls_pos_weights is not None:
+            # Per-class positive weighting: upweight minority classes
+            # cls_target shape: [batch, points, num_classes]
+            # cls_pos_weights shape: [num_classes]
+            # Expand pos_weights to match cls_target shape
+            pos_weights = self.cls_pos_weights.view(1, 1, -1).expand_as(cls_target)
+            loss_cls_raw = F.binary_cross_entropy_with_logits(pred_cls, cls_target, pos_weight=pos_weights, reduction="mean")
         else:
             loss_cls_raw = F.binary_cross_entropy_with_logits(pred_cls, cls_target, reduction="mean")
         loss_cls = sanitize_tensor(loss_cls_raw, name="loss_cls")
