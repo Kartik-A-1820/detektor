@@ -28,7 +28,7 @@
 - Full automated unittest suite is green in this environment.
 - Latest full verification:
   - `.\.venv\Scripts\python.exe -m unittest discover -s tests -p "test_*.py"`
-  - result: `185` passed, `1` skipped
+  - result: `186` passed, `1` skipped
 - Latest contract verification:
   - `.\.venv\Scripts\python.exe -m unittest tests.test_api tests.test_schemas tests.test_regression`
   - result: `35` passed
@@ -168,14 +168,30 @@ Items:
     - first, keep the current assigner change as the baseline and do not revert it unless a new controlled probe beats `runs/z9_effective_box_5epoch_validate` and clears the minority-class gate
     - second, prioritize changes that can create non-zero recall for at least one of `ball`, `goalkeeper`, or `referee`
     - third, use `per_class_metrics.csv` as a hard promotion gate, not just aggregate AP50; the gate is now also printed to stdout by `validate.py --output-dir`
-    - fourth, next recommended probe: focal loss with `loss.focal_loss_gamma=2.0` — this is now wired through the config and factory; run a 5-epoch probe with `--config runs/z9_effective_box_5epoch/resolved_train_config.yaml` plus `loss.focal_loss_gamma: 2.0` in the config
-    - fifth, if focal loss still fails, evaluate whether capacity is the limiter; the nova profile collapse was caused by LR being too high — this is now fixed with profile-aware LR scaling (nova gets 0.75x, supernova gets 0.50x)
-    - sixth, treat the completed 10-epoch continuation evidence as player-only amplification; do not promote it and do not use longer runs as the next blind search axis
+    - fourth, focal loss probe `runs/z9_focal_gamma2_5epoch` completed `2026-04-24` — improved aggregate metrics significantly but still failed the minority-class gate (ball/goalkeeper/referee all at 0.0 recall)
+    - fifth, next recommended probe: per-class loss weighting — add `cls_weight_per_class` to DetectionLoss to upweight minority classes (ball: 10x, goalkeeper: 5x, referee: 3x) during classification loss computation
+    - sixth, if per-class weighting still fails, the problem is likely that minority classes are never assigned positive points at all — run phase3_diagnostics.py to verify assignment rates for the focal loss checkpoint
+    - seventh, nova fixed probe `runs/z16_nova_fixed_5epoch` is running `2026-04-24` with corrected LR=0.0015 — check if it avoids the collapse seen in z16_nova_5epoch_real
     - do not start `Z-10` until a 5-epoch probe produces non-zero standalone validation recall for at least one currently dead minority class
+  - focal loss probe results `2026-04-24`:
+    - run: `runs/z9_focal_gamma2_5epoch`
+    - validate: `runs/z9_focal_gamma2_5epoch_validate`
+    - commands:
+      - `.\.venv\Scripts\python.exe train.py --config configs/z9_focal_gamma2_probe.yaml --data-yaml F:/data/data.yaml --device cuda --img-size 512 --epochs 5 --batch-size 4 --grad-accum 2 --lr 0.002 --num-workers 0 --vram-cap 0.8 --no-maximize-batch-size --out-dir runs/z9_focal_gamma2_5epoch --run-val --val-freq 1`
+      - `.\.venv\Scripts\python.exe validate.py --config runs/z9_focal_gamma2_5epoch/resolved_train_config.yaml --data-yaml F:/data/data.yaml --weights runs/z9_focal_gamma2_5epoch/chimera_best.pt --output-dir runs/z9_focal_gamma2_5epoch_validate --conf-thresh 0.25 --iou-thresh 0.5`
+    - result versus `runs/z9_effective_box_5epoch_validate` (baseline):
+      - precision improved from `0.6156` to `0.7246`
+      - recall improved from `0.4310` to `0.6005`
+      - AP50 improved from `0.3543` to `0.5011`
+      - mean box IoU improved from `0.6754` to `0.7076`
+      - `player` recall improved from `0.5200` to `0.7246`
+      - `ball`, `goalkeeper`, `referee` still at `0.0000` recall — GATE: BLOCKED
+    - conclusion: focal loss significantly improved aggregate metrics and player recall, but did not unlock minority classes; the problem is not classification difficulty but assignment — minority classes may still have zero positive assignments
   - new tools available for next probe:
-    - `loss.focal_loss_gamma: 2.0` in config YAML enables focal loss for classification
+    - `loss.focal_loss_gamma: 2.0` in config YAML enables normalized focal loss
     - `validate.py --output-dir <dir>` now prints per-class promotion gate to stdout
     - larger profiles (nova, pulsar, quasar, supernova) now get conservative LR scaling automatically
+    - full UI available at `serve.py --ui` with Training/Validation/Dataset Check tabs
   - exit criteria:
     - materially better recall and AP50 than the Z-8 baseline
     - non-zero standalone validation recall for at least one currently dead minority class
