@@ -221,8 +221,7 @@ def _print_per_class_promotion_gate(
     print("=" * 60)
 
 
-
-    path.parent.mkdir(parents=True, exist_ok=True)
+def _save_csv_rows(path: Path, fieldnames: Sequence[str], rows: Sequence[Dict[str, Any]]) -> None:
     with path.open("w", encoding="utf-8", newline="") as handle:
         writer = csv.DictWriter(handle, fieldnames=list(fieldnames))
         writer.writeheader()
