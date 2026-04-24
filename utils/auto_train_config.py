@@ -406,6 +406,26 @@ def _recommend_epoch_count(dataset_size: int, device_name: str, total_vram_gb: f
     return int(base_epochs)
 
 
+def _recommend_lr_for_profile(profile_key: str, base_lr: float, effective_batch: int) -> float:
+    """Scale LR by batch size and apply a conservative reduction for larger profiles.
+
+    Larger models have more parameters and are more sensitive to high LRs at init.
+    The scaling factors are conservative to avoid the collapse seen in the nova probe.
+    """
+    batch_scaled_lr = base_lr * max(effective_batch, 1) / 8.0
+    # Larger profiles get a modest LR reduction to prevent gradient explosion at init
+    profile_lr_scale = {
+        "firefly": 1.0,
+        "comet": 1.0,
+        "nova": 0.75,
+        "pulsar": 0.65,
+        "quasar": 0.60,
+        "supernova": 0.50,
+    }
+    scale = profile_lr_scale.get(profile_key.lower(), 1.0)
+    return round(min(max(batch_scaled_lr * scale, 0.0005), 0.004), 6)
+
+
 def resolve_training_config(
     config_path: str | None,
     data_yaml: str | None,
@@ -493,8 +513,12 @@ def resolve_training_config(
 
         effective_batch = int(cfg["train"]["batch_size"]) * int(cfg["train"]["grad_accum"])
         base_lr = 0.002
-        scaled_lr = base_lr * max(effective_batch, 1) / 8.0
-        cfg["train"]["lr"] = round(min(max(scaled_lr, 0.0005), 0.004), 6)
+        # Use the explicitly requested profile for LR scaling if one was provided,
+        # otherwise use the auto-recommended profile. This ensures that passing
+        # --model nova gets the nova-appropriate LR even during auto-tune.
+        explicit_profile_key = str(explicit_model_cfg.get("profile", "")).lower()
+        profile_key = explicit_profile_key if explicit_profile_key in ARCHITECTURE_PROFILES else str(cfg.get("model", {}).get("profile", "quasar")).lower()
+        cfg["train"]["lr"] = _recommend_lr_for_profile(profile_key, base_lr, effective_batch)
 
         if "out_dir" not in cfg.get("logging", {}) or not config_path:
             cfg.setdefault("logging", {})

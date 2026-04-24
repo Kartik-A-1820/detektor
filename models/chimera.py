@@ -69,6 +69,7 @@ class ChimeraODIS(nn.Module):
             obj_weight=float(detection_loss_cfg.get("obj_weight", 1.0)),
             center_radius=float(detection_loss_cfg.get("center_radius", 2.5)),
             label_smoothing=float(detection_loss_cfg.get("label_smoothing", 0.0)),
+            focal_loss_gamma=float(detection_loss_cfg.get("focal_loss_gamma", 0.0)),
         )
         self.segmentation_loss = SegmentationLoss()
         self.mask_weight = mask_weight

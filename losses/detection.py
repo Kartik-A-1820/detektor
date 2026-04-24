@@ -159,6 +159,7 @@ class DetectionLoss(nn.Module):
     - Warmup for box loss weight (gradual increase over first 3 epochs)
     - Label smoothing for classification (reduces overconfidence)
     - Balanced loss weights optimized for stability
+    - Optional focal loss for classification (helps minority class recall)
     """
 
     def __init__(
@@ -169,6 +170,7 @@ class DetectionLoss(nn.Module):
         obj_weight: float = 1.0,
         center_radius: float = 2.5,
         label_smoothing: float = 0.0,  # Label smoothing epsilon
+        focal_loss_gamma: float = 0.0,  # Focal loss gamma; 0.0 disables focal loss
     ) -> None:
         super().__init__()
         self.num_classes = num_classes
@@ -176,6 +178,7 @@ class DetectionLoss(nn.Module):
         self.box_weight = box_weight
         self.obj_weight = obj_weight
         self.label_smoothing = label_smoothing
+        self.focal_loss_gamma = focal_loss_gamma
         self.assigner = CenterPriorAssigner(center_radius=center_radius)
         
         # Warmup tracking
@@ -282,7 +285,14 @@ class DetectionLoss(nn.Module):
         
         # Compute classification loss with sanitization
         # Use mean instead of sum for better scaling
-        loss_cls_raw = F.binary_cross_entropy_with_logits(pred_cls, cls_target, reduction="mean")
+        # Optionally apply focal loss to down-weight easy negatives and focus on hard/minority examples
+        if self.focal_loss_gamma > 0.0:
+            bce_raw = F.binary_cross_entropy_with_logits(pred_cls, cls_target, reduction="none")
+            p_t = torch.exp(-bce_raw)
+            focal_weight = (1.0 - p_t).pow(self.focal_loss_gamma)
+            loss_cls_raw = (focal_weight * bce_raw).mean()
+        else:
+            loss_cls_raw = F.binary_cross_entropy_with_logits(pred_cls, cls_target, reduction="mean")
         loss_cls = sanitize_tensor(loss_cls_raw, name="loss_cls")
         loss_cls = clamp_loss(loss_cls, max_value=10.0, name="loss_cls")  # Lower clamp for mean
         

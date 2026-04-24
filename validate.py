@@ -188,7 +188,40 @@ def _match_predictions_to_targets(
     }
 
 
-def _save_csv_rows(path: Path, fieldnames: Sequence[str], rows: Sequence[Dict[str, Any]]) -> None:
+def _print_per_class_promotion_gate(
+    per_class_metrics: list[dict],
+    class_names: list[str],
+) -> None:
+    """Print a per-class recall summary with explicit dead-class flags for Phase 3 promotion gates."""
+    print("\n" + "=" * 60)
+    print("PER-CLASS RECALL GATE (Phase 3 promotion check)")
+    print("=" * 60)
+    dead_classes = []
+    live_classes = []
+    for entry in per_class_metrics:
+        name = entry.get("class_name", f"class_{entry['class_id']}")
+        recall = float(entry.get("recall", 0.0))
+        ap50 = float(entry.get("ap50", 0.0))
+        gt_count = int(entry.get("tp", 0)) + int(entry.get("fn", 0))
+        status = "DEAD" if recall == 0.0 else "live"
+        print(
+            f"  {name:<20} recall={recall:.4f}  ap50={ap50:.4f}  gt={gt_count:>5}  [{status}]"
+        )
+        if recall == 0.0:
+            dead_classes.append(name)
+        else:
+            live_classes.append(name)
+    print("-" * 60)
+    if dead_classes:
+        print(f"  DEAD classes ({len(dead_classes)}): {', '.join(dead_classes)}")
+        print("  GATE: BLOCKED — minority-class recall must be non-zero to promote checkpoint")
+    else:
+        print("  All classes have non-zero recall.")
+        print("  GATE: OPEN — checkpoint is eligible for promotion")
+    print("=" * 60)
+
+
+
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w", encoding="utf-8", newline="") as handle:
         writer = csv.DictWriter(handle, fieldnames=list(fieldnames))
@@ -510,6 +543,8 @@ def validate(
             ["class_id", "class_name", "precision", "recall", "f1", "ap50", "tp", "fp", "fn"],
             per_class_metrics,
         )
+        # Z-15: Print per-class promotion gate for Phase 3 checkpoint decisions
+        _print_per_class_promotion_gate(per_class_metrics, class_names)
         cm_rows = []
         cm_labels = class_names + ["background"]
         for label, row in zip(cm_labels, confusion_matrix.tolist()):

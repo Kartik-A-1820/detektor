@@ -311,6 +311,39 @@ class TestAutoTrainConfig(unittest.TestCase):
         self.assertEqual(Path(summary["resolved_train_root"]).name, "train")
         self.assertEqual(Path(summary["resolved_val_root"]).name, "val")
 
+    def test_resolve_training_config_scales_lr_for_larger_profiles(self) -> None:
+        """Larger profiles should get a conservative LR reduction to prevent gradient explosion."""
+        yaml_path = self._create_dataset_yaml()
+        # Use a 2GB GPU so batch_size=2, grad_accum=4 → effective_batch=8 → base_lr=0.002
+        # At effective_batch=8, batch_scaled_lr = 0.002 * 8/8 = 0.002, well below the 0.004 cap
+        # so profile scaling is visible: nova gets 0.002*0.75=0.0015, supernova gets 0.002*0.5=0.001
+        fake_props = SimpleNamespace(name="Tiny GPU", total_memory=2 * 1024 ** 3, major=7, minor=5)
+
+        with (
+            mock.patch("utils.auto_train_config.torch.cuda.is_available", return_value=True),
+            mock.patch("utils.auto_train_config.torch.cuda.get_device_properties", return_value=fake_props),
+            mock.patch("utils.auto_train_config.torch.cuda.is_bf16_supported", return_value=False),
+        ):
+            # Test comet (small profile) - should get full LR
+            cfg_comet, _ = resolve_training_config(None, str(yaml_path), overrides={"model": {"profile": "comet"}})
+            lr_comet = cfg_comet["train"]["lr"]
+
+            # Test nova (medium profile) - should get reduced LR
+            cfg_nova, _ = resolve_training_config(None, str(yaml_path), overrides={"model": {"profile": "nova"}})
+            lr_nova = cfg_nova["train"]["lr"]
+
+            # Test supernova (large profile) - should get even more reduced LR
+            cfg_supernova, _ = resolve_training_config(None, str(yaml_path), overrides={"model": {"profile": "supernova"}})
+            lr_supernova = cfg_supernova["train"]["lr"]
+
+        # Larger profiles should have lower LR
+        self.assertGreater(lr_comet, lr_nova, "comet LR should be higher than nova")
+        self.assertGreater(lr_nova, lr_supernova, "nova LR should be higher than supernova")
+        # All LRs should be in reasonable range
+        self.assertGreaterEqual(lr_comet, 0.0005)
+        self.assertLessEqual(lr_comet, 0.004)
+        self.assertGreaterEqual(lr_supernova, 0.0005)
+
 
 class TestTrainingAugmentations(unittest.TestCase):
     """Unit tests for deterministic augmentation behavior."""
