@@ -73,6 +73,24 @@ class SyntheticDatasetTests(unittest.TestCase):
             self.assertTrue(ya.exists() and yb.exists())
 
 
+    def test_relative_output_dir_yields_absolute_yaml_paths(self) -> None:
+        # Regression: a relative --output-dir produced a YAML whose paths were resolved twice by train.py.
+        import os
+
+        with tempfile.TemporaryDirectory() as tmp:
+            cwd = os.getcwd()
+            os.chdir(tmp)
+            try:
+                yaml_path = generate_dataset("rel/data", train=2, val=1, img_size=64)
+            finally:
+                os.chdir(cwd)
+            import yaml
+
+            cfg = yaml.safe_load(yaml_path.read_text())
+            self.assertTrue(Path(cfg["train"]).is_absolute() and Path(cfg["train"]).exists())
+            self.assertTrue(Path(cfg["val"]).is_absolute() and Path(cfg["val"]).exists())
+
+
 class SuitesSmokeTests(unittest.TestCase):
     def setUp(self) -> None:
         self.tmp = tempfile.TemporaryDirectory()
@@ -109,6 +127,19 @@ class SuitesSmokeTests(unittest.TestCase):
         row = startup.run(self.ctx)["rows"][0]
         self.assertGreater(row["checkpoint_mb"], 1.0)
         self.assertGreater(row["load_ms"]["mean_ms"], 0.0)
+
+    def test_memory_measure_profile_and_subprocess_suite(self) -> None:
+        from benchmarks.suites import memory
+
+        row = memory.measure_profile("firefly", 2, 96, "cpu", 2)
+        self.assertGreater(row["inference_peak_mb"], row["process_baseline_mb"])
+        self.assertGreater(row["model_weights_mb"], 4.0)
+        self.assertEqual(row["train_batch"], 2)
+        self.assertGreater(row["train_peak_mb"], 0)
+        # the real suite measures each profile in a fresh child process
+        out = memory.run(self.ctx)
+        self.assertNotIn("error", out["rows"][0], out["rows"][0])
+        self.assertEqual(out["rows"][0]["profile"], "firefly")
 
     def test_unavailable_suites_skip_cleanly(self) -> None:
         from benchmarks.suites import accuracy, robustness

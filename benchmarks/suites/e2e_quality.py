@@ -56,7 +56,7 @@ def run(ctx: BenchContext) -> Dict[str, Any]:
     epochs = int(ctx.extras.get("e2e_epochs", 4 if ctx.quick else 30))
     train_n, val_n = (64, 24) if ctx.quick else (192, 48)
     img_size = 256
-    workdir = ctx.output_dir / "e2e"
+    workdir = (ctx.output_dir / "e2e").resolve()
     workdir.mkdir(parents=True, exist_ok=True)
 
     trained = train_synthetic(ctx, workdir, profile=profile, epochs=epochs, train_n=train_n, val_n=val_n, img_size=img_size)

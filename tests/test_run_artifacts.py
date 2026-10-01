@@ -110,3 +110,17 @@ class RunArtifactsTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestSha256File(unittest.TestCase):
+    def test_matches_hashlib_and_streams(self) -> None:
+        import hashlib
+        import tempfile
+
+        from utils.artifacts import sha256_file
+
+        payload = b"detektor" * 300_000  # > 1 chunk
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "blob.bin"
+            path.write_bytes(payload)
+            self.assertEqual(sha256_file(path, chunk_size=4096), hashlib.sha256(payload).hexdigest())

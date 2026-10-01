@@ -5,11 +5,13 @@ __pycache__/
 .env
 .venv
 .git
+.github/
 .gitignore
 runs/
 artifacts/
 outputs/
 logs/
+reports/
 *.pt
 *.onnx
 *.pth
@@ -18,3 +20,8 @@ logs/
 node_modules/
 .dockerignore
 Dockerfile
+docs/assets/
+tests/
+benchmarks/results/
+.pytest_cache/
+.ruff_cache/

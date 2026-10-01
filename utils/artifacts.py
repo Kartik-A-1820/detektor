@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import platform
 import subprocess
@@ -76,6 +77,15 @@ def gather_environment_info() -> Dict[str, Any]:
         info["cuda_available"] = False
         info["cuda_version"] = None
     return info
+
+
+def sha256_file(path: Path, chunk_size: int = 1 << 20) -> str:
+    """Return the SHA-256 hex digest of a file (streamed, constant memory)."""
+    digest = hashlib.sha256()
+    with Path(path).open("rb") as handle:
+        for chunk in iter(lambda: handle.read(chunk_size), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
 
 
 def get_git_commit(repo_root: Optional[Path] = None) -> Optional[str]:

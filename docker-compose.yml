@@ -1,44 +1,68 @@
-version: "3.9"
+# Detektor inference service.
+#
+#   cp .env.example .env            # then edit
+#   docker compose up --build       # CPU service on http://localhost:8000
+#   docker compose --profile gpu up --build detektor-gpu
+#
+# Put your checkpoint(s) in ./artifacts (mounted read-only at /artifacts).
+
+x-detektor-env: &detektor-env
+  DETEKTOR_WEIGHTS: ${DETEKTOR_WEIGHTS:-/artifacts/model.pt}
+  DETEKTOR_HOST: 0.0.0.0
+  DETEKTOR_PORT: 8000
+  DETEKTOR_CONF_THRESH: ${DETEKTOR_CONF_THRESH:-0.25}
+  DETEKTOR_IOU_THRESH: ${DETEKTOR_IOU_THRESH:-0.6}
+  DETEKTOR_MAX_DET: ${DETEKTOR_MAX_DET:-100}
+  DETEKTOR_MAX_CONCURRENCY: ${DETEKTOR_MAX_CONCURRENCY:-1}
+  DETEKTOR_API_KEY: ${DETEKTOR_API_KEY:-}
+  DETEKTOR_CORS_ORIGINS: ${DETEKTOR_CORS_ORIGINS:-}
+  DETEKTOR_UI: ${DETEKTOR_UI:-false}
+  DETEKTOR_UI_AUTH: ${DETEKTOR_UI_AUTH:-}
+  DETEKTOR_LOG_LEVEL: ${DETEKTOR_LOG_LEVEL:-INFO}
 
 x-detektor-service: &detektor-service
-  build:
-    context: .
-    dockerfile: Dockerfile
   image: detektor:latest
+  restart: unless-stopped
   ports:
-    - "8000:8000"
-  environment:
-    DETEKTOR_WEIGHTS: /artifacts/model.pt
-    DETEKTOR_DEVICE: cpu
-    DETEKTOR_HOST: 0.0.0.0
-    DETEKTOR_PORT: 8000
-    DETEKTOR_CONF_THRESH: 0.25
-    DETEKTOR_IOU_THRESH: 0.6
-    DETEKTOR_MAX_DET: 100
+    - "${DETEKTOR_PUBLISH_PORT:-8000}:8000"
   volumes:
     - ./artifacts:/artifacts:ro
+  read_only: true
+  tmpfs:
+    - /tmp
+  security_opt:
+    - no-new-privileges:true
+  cap_drop:
+    - ALL
   healthcheck:
-    test: ["CMD", "curl", "-f", "http://localhost:8000/ready"]
+    test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8000/ready"]
     interval: 30s
     timeout: 5s
     retries: 3
-    start_period: 20s
-  restart: unless-stopped
+    start_period: 40s
 
 services:
-  detektor-api:
+  detektor:
     <<: *detektor-service
-
-  detektor-api-gpu:
-    <<: *detektor-service
+    build:
+      context: .
+      dockerfile: Dockerfile
     environment:
-      DETEKTOR_WEIGHTS: /artifacts/model.pt
+      <<: *detektor-env
+      DETEKTOR_DEVICE: cpu
+
+  detektor-gpu:
+    <<: *detektor-service
+    profiles: ["gpu"]
+    image: detektor:gpu
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        TORCH_INDEX_URL: https://download.pytorch.org/whl/cu121
+    environment:
+      <<: *detektor-env
       DETEKTOR_DEVICE: cuda
-      DETEKTOR_HOST: 0.0.0.0
-      DETEKTOR_PORT: 8000
-      DETEKTOR_CONF_THRESH: 0.25
-      DETEKTOR_IOU_THRESH: 0.6
-      DETEKTOR_MAX_DET: 100
     deploy:
       resources:
         reservations:
@@ -46,4 +70,3 @@ services:
             - driver: nvidia
               count: 1
               capabilities: [gpu]
-    runtime: nvidia

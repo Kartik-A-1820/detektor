@@ -15,6 +15,7 @@ from utils.artifacts import (
     extract_class_names,
     gather_environment_info,
     get_git_commit,
+    sha256_file,
     write_manifest,
 )
 
@@ -105,6 +106,13 @@ def package_model(
             "onnx": str(onnx_path) if onnx_path else None,
         },
     )
+
+    # Integrity checksums let consumers verify an artifact before loading it (checkpoints are pickles).
+    manifest["checksums"] = {
+        key: sha256_file(output_dir / name)
+        for key, name in (("model_pt", model_pt_name), ("model_onnx", model_onnx_name))
+        if name and (output_dir / name).exists()
+    }
 
     manifest_path = output_dir / "package_manifest.json"
     write_manifest(manifest_path, manifest)

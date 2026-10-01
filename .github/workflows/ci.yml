@@ -1,0 +1,95 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install "ruff>=0.5"
+      - run: ruff check .
+
+  test:
+    name: Tests (py${{ matrix.python }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.11", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+          cache: pip
+          cache-dependency-path: requirements*.txt
+      - name: Install CPU PyTorch
+        run: pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
+      - name: Install dependencies
+        run: pip install -r requirements-dev.txt
+      - name: Run test suite
+        run: python -m pytest -ra --durations=10
+
+  benchmark-smoke:
+    name: Benchmark smoke run
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: requirements*.txt
+      - run: pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
+      - run: pip install -r requirements-dev.txt
+      - name: Quick benchmark (all fast suites, smallest profile)
+        run: python -m benchmarks run --suites fast --profiles firefly --img-sizes 320 --quick --device cpu --output-dir bench-out --tag ci
+      - name: Quick end-to-end API load benchmark
+        run: python -m benchmarks run --suites api --profiles firefly --quick --device cpu --output-dir bench-out --tag ci-api
+      - name: Publish report to the job summary
+        if: always()
+        run: |
+          for f in bench-out/*/report.md; do cat "$f" >> "$GITHUB_STEP_SUMMARY"; done
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: benchmark-results
+          path: bench-out/**/results.json
+
+  docker:
+    name: Docker image
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - name: Build CPU image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          load: true
+          tags: detektor:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - name: Smoke test the image
+        run: |
+          docker run --rm --entrypoint python detektor:ci -c "import serve, api, ui.app; print('imports ok')"
+          docker run --rm --entrypoint id detektor:ci -u | grep -qx 10001

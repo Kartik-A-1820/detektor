@@ -212,9 +212,8 @@ python serve.py \
 curl http://localhost:8000/health
 
 # Single prediction
-curl -X POST "http://localhost:8000/v1/predict" \
-  -F "image=@test.jpg" \
-  -F "conf_thresh=0.25"
+curl -X POST "http://localhost:8000/v1/predict?conf_thresh=0.25" \
+  -F "image=@test.jpg"
 
 # Interactive docs
 open http://localhost:8000/docs
@@ -225,25 +224,28 @@ open http://localhost:8000/docs
 Build and run with Docker:
 
 ```bash
-# Build image
-docker build -t detektor:latest .
+cp .env.example .env                 # set DETEKTOR_API_KEY etc.
+mkdir -p artifacts && cp runs/chimera/chimera_best.pt artifacts/model.pt
 
-# Run CPU service
-docker-compose up detektor-cpu
+# CPU service on http://localhost:8000
+docker compose up --build
 
-# Run GPU service
-docker-compose up detektor-gpu
+# GPU service (needs the NVIDIA container toolkit)
+docker compose --profile gpu up --build detektor-gpu
 ```
 
-### Step 10: Launch UI (Optional)
+See the [deployment guide](DEPLOYMENT.md) for TLS, Kubernetes and the production checklist.
 
-Start the Gradio UI for local testing:
+### Step 10: Open the web console (Optional)
+
+Serve the model together with the built-in console (detect, switch checkpoints, training curves, live benchmark):
 
 ```bash
-python ui/app.py
+python serve.py --weights runs/chimera/chimera_best.pt --ui
 ```
 
-Access at `http://localhost:7860`
+Open `http://127.0.0.1:8000/ui`. To use the console against an API that is already running elsewhere:
+`DETEKTOR_UI_BACKEND=http://host:8000 python -m ui.app` (then `http://127.0.0.1:7860`).
 
 ---
 
@@ -323,7 +325,7 @@ Fix issues reported by `check_dataset.py`:
 
 ## Next Steps
 
-- Read the full [README.md](README.md) for detailed documentation
+- Read the full [README.md](../../README.md) for detailed documentation
 - Check [Optimizer and Loss Baseline](../internal/OPTIMIZER_LOSS_BASELINE.md) for training tips
 - See [Reporting Reference](../reference/REPORTING.md) for metrics documentation
 - Review [Validation Output Schema](../reference/VALIDATION_OUTPUT_SCHEMA.md) for output formats

@@ -59,5 +59,5 @@ def validate_checkpoint(weights: str, data_yaml: str, out_dir: Path, device: str
 def run(ctx: BenchContext) -> Dict[str, Any]:
     if not ctx.weights or not ctx.data_yaml:
         return {"description": DESCRIPTION, "skipped": "pass --weights and --data-yaml to enable the accuracy suite", "rows": []}
-    result = validate_checkpoint(ctx.weights, ctx.data_yaml, ctx.output_dir / "accuracy", device=ctx.device)
+    result = validate_checkpoint(ctx.weights, ctx.data_yaml, (ctx.output_dir / "accuracy").resolve(), device=ctx.device)
     return {"description": DESCRIPTION, "weights": str(ctx.weights), "data_yaml": str(ctx.data_yaml), "metrics": result}

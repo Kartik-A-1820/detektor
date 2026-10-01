@@ -51,6 +51,16 @@ class InferenceService:
         self.default_include_masks = default_include_masks
         self.num_classes = model.num_classes
 
+    @staticmethod
+    def _task_for(include_masks: bool) -> str:
+        """Skip mask composition/resizing entirely unless the caller asked for masks.
+
+        Full-resolution mask post-processing dominates request latency when many objects are
+        detected (see ``python -m benchmarks run --suites latency``), so detection-only
+        requests - the default - use the box-only path.
+        """
+        return "segment" if include_masks else "detect"
+
     def warmup(self, num_iterations: int = 3) -> None:
         """Warmup the model with dummy inputs.
 
@@ -112,6 +122,7 @@ class InferenceService:
                     topk_pre_nms=self.default_topk_pre_nms,
                     max_det=max_det,
                     mask_thresh=self.default_mask_thresh,
+                    task=self._task_for(include_masks),
                 )[0]
 
         inference_time_ms = timer.duration_ms
@@ -175,6 +186,7 @@ class InferenceService:
                     topk_pre_nms=self.default_topk_pre_nms,
                     max_det=max_det,
                     mask_thresh=self.default_mask_thresh,
+                    task=self._task_for(include_masks),
                 )
 
         total_inference_time_ms = timer.duration_ms

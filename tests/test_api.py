@@ -20,6 +20,7 @@ class DummyModel:
     def __init__(self) -> None:
         self.num_classes = 2
         self.device = torch.device("cpu")
+        self.calls: list = []
 
     def to(self, device: torch.device) -> DummyModel:
         self.device = device
@@ -29,6 +30,7 @@ class DummyModel:
         return self
 
     def predict(self, image_tensor: torch.Tensor, original_sizes, **kwargs):
+        self.calls.append(kwargs)
         batch_size = image_tensor.shape[0]
         predictions = []
         for orig_h, orig_w in original_sizes:
@@ -91,6 +93,21 @@ class ProductionAPITests(unittest.TestCase):
             self.assertEqual(payload["num_detections"], 1)
             self.assertIn("request_id", payload)
             self.assertIn("detections", payload)
+
+    def test_mask_computation_is_skipped_unless_requested(self) -> None:
+        """Mask post-processing is the dominant latency cost; only pay for it on request."""
+        model = DummyModel()
+        get_metrics_store().reset()
+        config = ServiceConfig(weights="dummy.pt", enable_warmup=False)
+        with patch("serve.load_model", return_value=(model, torch.device("cpu"))):
+            with TestClient(create_app(config)) as client:
+                files = {"image": ("test.png", self.image_bytes, "image/png")}
+                client.post("/v1/predict", files=files)
+                client.post("/v1/predict?include_masks=true", files=files)
+                client.post("/v1/predict_batch", files=[("images", ("a.png", self.image_bytes, "image/png"))])
+                client.post("/v1/predict_batch?include_masks=true", files=[("images", ("a.png", self.image_bytes, "image/png"))])
+        tasks = [call.get("task") for call in model.calls]
+        self.assertEqual(tasks, ["detect", "segment", "detect", "segment"])
 
     def test_legacy_predict_endpoint_alias(self) -> None:
         with self._test_client() as client:

@@ -39,13 +39,15 @@ def _latency(r: Dict[str, Any]) -> str:
         rows.append([
             x["profile"], x["img_size"], _get(x, "preprocess", "p50_ms"), _get(x, "forward", "p50_ms"),
             _get(x, "predict_default", "p50_ms"), _get(x, "predict_default", "p95_ms"), _get(x, "predict_default", "p99_ms"),
-            _get(x, "predict_dense", "p50_ms"), _get(x, "predict_dense", "postprocess_p50_ms"), _get(x, "predict_default", "fps"),
+            _get(x, "predict_dense", "p50_ms"), _get(x, "predict_dense_boxes", "p50_ms"), _get(x, "predict_default", "fps"),
         ])
     return _table(
         ["Profile", "Input", "Decode+resize p50", "Forward p50", "Predict p50", "Predict p95", "Predict p99",
-         "Dense predict p50", "Dense postproc.", "FPS"], rows) + (
-        "\n\n_All latencies in ms, batch 1. “Dense” lowers the confidence threshold to 0.001 so top‑k, NMS and mask "
-        "composition run at their worst‑case workload (a randomly initialised model emits no confident detections)._")
+         "Dense + masks p50", "Dense, boxes only p50", "FPS"], rows) + (
+        "\n\n_All latencies in ms, batch 1, 1280×720 source image. “Dense” lowers the confidence threshold to 0.001 so top‑k, "
+        "NMS and (for the masks column) full‑resolution mask composition run at their worst‑case workload — 100 detections; a "
+        "randomly initialised model emits no confident detections, so the default column shows the idle case. The API skips mask "
+        "computation unless `include_masks=true`._")
 
 
 def _throughput(r: Dict[str, Any]) -> str:
@@ -58,10 +60,13 @@ def _throughput(r: Dict[str, Any]) -> str:
 
 def _memory(r: Dict[str, Any]) -> str:
     return _table(
-        ["Profile", "Input", "Inference peak (MB)", "Inference Δ (MB)", "Train batch", "Train peak (MB)", "Train Δ (MB)"],
-        [[x["profile"], x["img_size"], x.get("inference_peak_mb"), x.get("inference_delta_mb"), x.get("train_batch"),
-          x.get("train_peak_mb"), x.get("train_delta_mb")] for x in r["rows"]],
-    ) + f"\n\n_Metric: {r.get('metric')}. “Δ” is the increase over the pre‑measurement baseline._"
+        ["Profile", "Input", "Weights (MB)", "Inference peak (MB)", "Inference Δ (MB)", "Train batch", "Train peak (MB)", "Train Δ (MB)"],
+        [[x["profile"], x["img_size"], x.get("model_weights_mb"), x.get("inference_peak_mb"), x.get("inference_delta_mb"),
+          x.get("train_batch"), x.get("train_peak_mb"), x.get("train_delta_mb")] if "error" not in x else
+         [x["profile"], x["img_size"], f"error: {x['error']}", None, None, None, None, None] for x in r["rows"]],
+    ) + (f"\n\n_Metric: {r.get('metric')}. “Peak” includes the interpreter and PyTorch libraries "
+         f"(~{(r['rows'][0].get('process_baseline_mb') if r.get('rows') else 0) or 0:.0f} MB); “Δ” is the increase over the "
+         "level just before the measured work._")
 
 
 def _training(r: Dict[str, Any]) -> str:

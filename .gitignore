@@ -1,24 +1,37 @@
-.venv
+# Environments
 .venv/
-env/
 venv/
+env/
+.env
 .Python
+
+# Python
 __pycache__/
-*.pyc
-*.pyo
-*.pyd
+*.py[cod]
 *.egg
 *.egg-info/
 dist/
 build/
-runs/
-datasets/
-artifacts/
-reports/
-.env
-.vscode/
+.pytest_cache/
+.ruff_cache/
 .ipynb_checkpoints/
+
+# Editors
+.vscode/
+.idea/
+
+# Training / benchmark / serving outputs (benchmarks/results/ is tracked on purpose)
+/runs/
+/artifacts/
+/reports/
+/exports/
+/outputs/
+/data/
+bench-out/
+.tmp_testdata/
+
+# Model weights and exports
 *.pt
+*.pth
 *.onnx
 *.engine
-.tmp_testdata/

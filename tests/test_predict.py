@@ -71,3 +71,30 @@ class PredictSmokeTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestMaskCroppingRegression(unittest.TestCase):
+    """Regression: masks must be empty outside their box.
+
+    Cropping *logits* to 0 and then applying sigmoid (0.5) with a ``>= 0.5`` threshold used to
+    mark every pixel outside the box as foreground, so predicted masks covered ~the whole image.
+    """
+
+    def test_predicted_masks_stay_inside_their_boxes(self) -> None:
+        import numpy as np
+
+        from models.chimera import ChimeraODIS
+
+        torch.manual_seed(0)
+        model = ChimeraODIS(num_classes=2, proto_k=8).eval()
+        size = 128
+        x = torch.rand(1, 3, size, size)
+        pred = model.predict(x, original_sizes=[(size, size)], conf_thresh=0.0, max_det=6, task="segment")[0]
+        self.assertGreater(pred["boxes"].shape[0], 0)
+
+        margin = 10  # prototype stride (4) x bilinear support, with slack
+        for box, mask in zip(pred["boxes"].numpy(), pred["masks"].numpy()):
+            outside = np.ones((size, size), dtype=bool)
+            x1, y1, x2, y2 = (int(round(v)) for v in box)
+            outside[max(y1 - margin, 0): y2 + margin, max(x1 - margin, 0): x2 + margin] = False
+            self.assertFalse(mask.astype(bool)[outside].any(), "mask leaks outside its bounding box")

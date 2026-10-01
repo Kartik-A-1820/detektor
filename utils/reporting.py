@@ -156,7 +156,6 @@ def plot_learning_rate(df: pd.DataFrame, output_dir: Path) -> Optional[Path]:
 
     # Add annotations for key points
     max_lr = df["lr"].max()
-    min_lr = df["lr"].min()
     max_idx = df["lr"].idxmax()
 
     ax.annotate(f'Max LR: {max_lr:.6f}',

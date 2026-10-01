@@ -169,7 +169,7 @@ def generate_report(
     LOGGER.info("Generating metrics summary...")
     try:
         summary_path = output_reports_dir / "metrics_summary.json"
-        summary = generate_metrics_summary(train_df, epoch_df, val_metrics, summary_path)
+        generate_metrics_summary(train_df, epoch_df, val_metrics, summary_path)
         report_status["reports_generated"].append(str(summary_path))
         LOGGER.info(f"Generated metrics summary: {summary_path}")
     except Exception as e:

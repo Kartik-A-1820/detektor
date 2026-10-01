@@ -203,3 +203,31 @@ class TestSmartTrainingOrchestrator(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestBestCheckpointSelection(unittest.TestCase):
+    """Regression: epoch-1 loss (box weight ramped to 1/3) must not win 'best' selection forever."""
+
+    def test_warmup_epochs_are_not_eligible(self) -> None:
+        from train import is_eligible_for_loss_best
+
+        eligible = [e for e in range(1, 11) if is_eligible_for_loss_best(e, total_epochs=10, warmup_epochs=3)]
+        self.assertEqual(eligible, [4, 5, 6, 7, 8, 9, 10])
+
+    def test_short_run_still_gets_a_best_checkpoint(self) -> None:
+        from train import is_eligible_for_loss_best
+
+        eligible = [e for e in range(1, 3) if is_eligible_for_loss_best(e, total_epochs=2, warmup_epochs=3)]
+        self.assertEqual(eligible, [2])
+
+    def test_loss_warmup_actually_depresses_early_losses(self) -> None:
+        """Documents *why* the guard exists: the loss's box weight ramps with the epoch."""
+        from models.chimera import ChimeraODIS
+
+        model = ChimeraODIS(num_classes=1, proto_k=8)
+        self.assertEqual(model.detection_loss.warmup_epochs, 3)
+        model.detection_loss.current_epoch = 0
+        early = min(1.0, (model.detection_loss.current_epoch + 1) / model.detection_loss.warmup_epochs)
+        model.detection_loss.current_epoch = 5
+        late = min(1.0, (model.detection_loss.current_epoch + 1) / model.detection_loss.warmup_epochs)
+        self.assertLess(early, late)

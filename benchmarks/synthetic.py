@@ -58,7 +58,7 @@ def _make_image(size: int, rng: np.random.Generator) -> Tuple[np.ndarray, List[s
 
 def generate_dataset(root: str | Path, *, train: int = 96, val: int = 32, img_size: int = 256, seed: int = 0) -> Path:
     """Write ``root/{train,val}/{images,labels}`` plus ``root/data.yaml``; returns the YAML path."""
-    root = Path(root)
+    root = Path(root).resolve()  # absolute: the YAML is later resolved relative to its own folder
     rng = np.random.default_rng(seed)
     for split, count in (("train", train), ("val", val)):
         (root / split / "images").mkdir(parents=True, exist_ok=True)
@@ -82,3 +82,21 @@ def generate_dataset(root: str | Path, *, train: int = 96, val: int = 32, img_si
         encoding="utf-8",
     )
     return data_yaml
+
+
+def main() -> None:
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Generate the synthetic shapes dataset (YOLO segmentation format)")
+    parser.add_argument("--out", default="data/synthetic", help="Output directory")
+    parser.add_argument("--train", type=int, default=192, help="Training images")
+    parser.add_argument("--val", type=int, default=48, help="Validation images")
+    parser.add_argument("--img-size", type=int, default=256)
+    parser.add_argument("--seed", type=int, default=0)
+    args = parser.parse_args()
+    data_yaml = generate_dataset(args.out, train=args.train, val=args.val, img_size=args.img_size, seed=args.seed)
+    print(f"dataset written to {Path(args.out).resolve()}\ndata yaml: {data_yaml.resolve()}")
+
+
+if __name__ == "__main__":
+    main()

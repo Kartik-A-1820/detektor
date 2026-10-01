@@ -11,7 +11,6 @@ from torch.utils.data import Dataset
 
 from utils.task_detection import TaskMode, analyze_dataset_task, print_task_detection_summary
 
-
 SUPPORTED_IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".bmp", ".webp"}
 
 

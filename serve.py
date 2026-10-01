@@ -697,7 +697,7 @@ def main() -> None:
     if config.ui_enabled:
         import gradio as gr
 
-        from ui.app import DetektorUIRuntime, build_interface
+        from ui.app import DetektorUIRuntime, build_interface, mount_kwargs
 
         runtime = DetektorUIRuntime(
             get_runtime_state=get_runtime_state,
@@ -708,9 +708,11 @@ def main() -> None:
             app,
             build_interface(runtime=runtime),
             path=config.ui_path,
-            allowed_paths=[str(Path.cwd())],
+            # Only the run directory (training plots) may be served by the UI file route.
+            allowed_paths=[str(Path(config.weights).expanduser().resolve().parent)],
             show_error=True,
             auth=tuple(config.ui_auth.split(":", 1)) if config.ui_auth and ":" in config.ui_auth else None,
+            **mount_kwargs(),
         )
     uvicorn.run(
         app,

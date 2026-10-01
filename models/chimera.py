@@ -417,8 +417,11 @@ class ChimeraODIS(nn.Module):
                     image_size=model_image_size,
                     proto_size=proto_size,
                 )
-                mask_logits = crop_mask_region(mask_logits, proto_boxes)
-                mask_probs = upsample_masks_to_image(mask_logits.sigmoid(), model_image_size)
+                # Crop *probabilities* (outside the box -> 0). Cropping logits to 0 and then applying
+                # sigmoid yields 0.5, which passes the ``>= 0.5`` threshold and marks everything
+                # outside the box as foreground.
+                mask_probs = crop_mask_region(mask_logits.sigmoid(), proto_boxes)
+                mask_probs = upsample_masks_to_image(mask_probs, model_image_size)
                 masks = (
                     mask_probs
                     if return_mask_probs

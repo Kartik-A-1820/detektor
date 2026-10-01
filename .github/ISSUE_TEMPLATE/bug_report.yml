@@ -1,0 +1,28 @@
+name: Bug report
+description: Something is broken or behaves unexpectedly
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened?
+      description: Include what you expected instead.
+    validations: { required: true }
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      description: Exact commands, config and (if possible) a minimal dataset or image.
+      render: shell
+    validations: { required: true }
+  - type: textarea
+    id: env
+    attributes:
+      label: Environment
+      description: "Paste the environment block from `python -m benchmarks run --suites complexity --quick` (results.json → environment), or OS / Python / torch / GPU."
+      render: json
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs / traceback
+      render: text

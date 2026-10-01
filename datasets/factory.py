@@ -1,5 +1,6 @@
 from .yolo_seg import YOLOSegDataset
 
+
 def build_dataset(cfg, split):
     root = cfg["data"][split]
     is_train = split == "train"

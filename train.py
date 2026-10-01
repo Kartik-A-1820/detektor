@@ -257,6 +257,18 @@ def _resolve_task_mode(dataset: Any) -> str:
     return "segment"
 
 
+def is_eligible_for_loss_best(epoch_number: int, total_epochs: int, warmup_epochs: int) -> bool:
+    """Whether an epoch may be selected as ``best`` when selecting by training loss.
+
+    Epoch losses are not comparable during warm-up: the box-loss weight (and the learning
+    rate) ramp up over the first epochs, so the first epoch's *summed* loss is mechanically
+    the lowest and would otherwise win forever, leaving ``chimera_best.pt`` at a barely
+    trained snapshot. Warm-up epochs are therefore skipped, except for the final epoch so a
+    very short run still produces a best checkpoint.
+    """
+    return epoch_number > warmup_epochs or epoch_number == total_epochs
+
+
 def _train_once(
     cfg: Dict[str, Any],
     resolved_runtime: Dict[str, Any],
@@ -526,7 +538,16 @@ def _train_once(
                 scheduler.step()
 
             selection_metric = epoch_loss_avg
-            is_best = selection_metric < best_metric if best_metric_mode == "train_loss" else False
+            is_best = (
+                is_eligible_for_loss_best(
+                    epoch + 1,
+                    epochs,
+                    max(int(cfg["train"].get("warmup_epochs", 0) or 0), int(model.detection_loss.warmup_epochs)),
+                )
+                and selection_metric < best_metric
+                if best_metric_mode == "train_loss"
+                else False
+            )
 
             val_log = None
             if run_val and (epoch + 1) % val_freq == 0:

@@ -168,50 +168,39 @@ python infer.py --weights runs/chimera/chimera_best.pt --source test.jpg \
 
 ### `serve.py`
 
-Start production FastAPI server for model inference.
+Start the FastAPI inference service (optionally with the web console).
 
 **Basic Usage:**
 ```bash
 python serve.py --weights runs/chimera/chimera_best.pt
+python serve.py --weights runs/chimera/chimera_best.pt --ui          # + web console at /ui
 ```
 
-**Arguments:**
-- `--weights PATH` (required): Path to model checkpoint
-- `--device NAME`: Device to use (`cuda` or `cpu`, default: `cuda`)
-- `--host IP`: Host to bind (default: `0.0.0.0`)
-- `--port INT`: Port to bind (default: 8000)
-- `--img-size INT`: Input image size (default: 512)
-- `--conf-thresh FLOAT`: Default confidence threshold (default: 0.25)
-- `--iou-thresh FLOAT`: Default NMS IoU threshold (default: 0.6)
-- `--max-det INT`: Default max detections (default: 100)
-- `--max-upload-mb INT`: Max upload size in MB (default: 10)
-- `--max-batch INT`: Max batch size (default: 16)
+**Key arguments** (every flag also has a `DETEKTOR_*` environment variable — see
+[CONFIGURATION.md](CONFIGURATION.md) for the complete list):
+- `--weights PATH` (required): checkpoint; sibling `chimera_best.pt` / `chimera_last.pt` are switchable at runtime
+- `--device NAME`: `auto` (default), `cpu` or `cuda`
+- `--host IP` / `--port INT`: bind address (default `127.0.0.1:8000`)
+- `--img-size INT`: network input size (default 512)
+- `--conf-thresh FLOAT` / `--iou-thresh FLOAT` / `--max-det INT`: default inference thresholds (0.25 / 0.6 / 100)
+- `--max-upload-size-mb INT` (10), `--max-batch-size INT` (16), `--max-concurrency INT` (1)
+- `--api-key KEY`: require `X-API-Key` / Bearer auth on inference, runtime and metrics endpoints
+- `--cors-origins LIST`: comma-separated allowed origins (CORS off by default)
+- `--ui`, `--ui-path PATH`, `--ui-auth user:password`: web console
 
-**Endpoints:**
-- `GET /health` - Health check
-- `GET /ready` - Readiness check
-- `GET /version` - API version info
-- `GET /metrics` - Request metrics
-- `POST /predict` - Legacy prediction endpoint
-- `POST /v1/predict` - Versioned prediction endpoint
-- `POST /v1/predict/batch` - Batch prediction endpoint
+**Endpoints** (full reference: [API.md](API.md)):
+- `GET /health`, `GET /ready`, `GET /version` - probes (always open)
+- `GET /metrics`, `GET /metrics/prometheus` - JSON / Prometheus metrics
+- `GET /runtime`, `POST /runtime/select_model` - run metadata and checkpoint switching
+- `POST /v1/predict`, `POST /v1/predict_batch` - inference; `POST /predict` is a deprecated alias
 
 **Examples:**
 ```bash
-# Start server
 python serve.py --weights runs/chimera/chimera_best.pt --device cuda
+python serve.py --weights runs/chimera/chimera_best.pt --host 0.0.0.0 --api-key "$(openssl rand -hex 32)"
 
-# Custom host and port
-python serve.py --weights runs/chimera/chimera_best.pt --host 127.0.0.1 --port 8080
-
-# CPU-only server
-python serve.py --weights runs/chimera/chimera_best.pt --device cpu
-
-# Test with curl
-curl http://localhost:8000/health
-curl -X POST "http://localhost:8000/v1/predict" -F "image=@test.jpg"
-
-# Interactive docs
+curl http://localhost:8000/ready
+curl -X POST "http://localhost:8000/v1/predict?conf_thresh=0.3" -H "X-API-Key: $KEY" -F "image=@test.jpg"
 open http://localhost:8000/docs
 ```
 
@@ -316,7 +305,22 @@ python -m scripts.package_model \
 
 ## Benchmarking
 
-### `scripts.benchmark`
+### `python -m benchmarks`
+
+Unified benchmark framework: complexity, latency, throughput, memory, training speed, cold start, ONNX Runtime, HTTP
+API load, synthetic end-to-end quality, robustness and accuracy. Full documentation: [BENCHMARKS.md](../BENCHMARKS.md).
+
+```bash
+python -m benchmarks list
+python -m benchmarks run --suites fast --profiles firefly,comet,nova
+python -m benchmarks run --suites all --profiles all --tag full
+python -m benchmarks run --suites accuracy,robustness --weights runs/chimera/chimera_best.pt --data-yaml data.yaml
+python -m benchmarks report runs/benchmarks/<run>/results.json -o report.md
+python -m benchmarks compare base.json new.json --threshold 15 --fail-on-regression
+python -m benchmarks.synthetic --out data/synthetic        # dataset-free demo data
+```
+
+### `scripts.benchmark` (legacy)
 
 Benchmark PyTorch and ONNX Runtime inference performance.
 
@@ -463,35 +467,26 @@ python export.py \
 
 ## UI
 
-### `ui/app.py`
+### Integrated console (`serve.py --ui`)
 
-Launch Gradio UI for local testing and demonstration.
-
-**Basic Usage:**
 ```bash
-python ui/app.py
+python serve.py --weights runs/chimera/chimera_best.pt --ui --ui-auth admin:change-me
+# → http://127.0.0.1:8000/ui
 ```
 
-**Environment Variables:**
-- `DETEKTOR_UI_BACKEND`: Backend API URL (default: `http://localhost:8000`)
+Tabs: **Detect** (upload / folder, presets, annotated gallery, JSON export), **Model** (checkpoint switching, class
+map, dataset + training metadata), **Training** (curves, validation history), **Benchmark** (live latency/throughput of
+the loaded model, saved benchmark reports) and **API & help**. Light and dark themes follow the OS setting.
 
-**Features:**
-- Single image upload and inference
-- Batch image processing
-- Adjustable confidence threshold
-- Class label display
-- Raw JSON response viewer
-- Inference latency display
+### Remote console (`python -m ui.app`)
 
-**Examples:**
+Runs the same look against an API that is already running elsewhere.
+
 ```bash
-# Start UI (requires serve.py running)
-python serve.py --weights runs/chimera/chimera_best.pt &
-python ui/app.py
-
-# Custom backend
-DETEKTOR_UI_BACKEND=http://192.168.1.100:8000 python ui/app.py
+DETEKTOR_UI_BACKEND=http://192.168.1.100:8000 python -m ui.app      # http://127.0.0.1:7860
 ```
+
+Enter the API key in *Backend connection* if the server sets `DETEKTOR_API_KEY`.
 
 ---
 

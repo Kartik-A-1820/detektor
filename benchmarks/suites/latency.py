@@ -17,7 +17,8 @@ DESCRIPTION = "Batch-1 latency with preprocess / forward / postprocess breakdown
 # low threshold so top-k + NMS + mask composition run at their worst-case workload.
 SCENARIOS = {
     "default": {"conf_thresh": 0.25},
-    "dense": {"conf_thresh": 0.001},
+    "dense": {"conf_thresh": 0.001},  # worst case: top-k + NMS + full-resolution masks
+    "dense_boxes": {"conf_thresh": 0.001, "task": "detect"},  # same workload without masks (API default)
 }
 
 

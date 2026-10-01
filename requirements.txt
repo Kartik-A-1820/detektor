@@ -1,14 +1,26 @@
+# Runtime dependencies. GPU users: install a CUDA build of torch first
+# (https://pytorch.org/get-started/locally/), then `pip install -r requirements.txt`.
 torch>=2.1
 torchvision>=0.16
-opencv-python
-pyyaml
+numpy>=1.24
+opencv-python-headless>=4.8
+pillow>=10.0
+pyyaml>=6.0
 tqdm
-numpy
-matplotlib
+matplotlib>=3.7
+pandas>=2.0
 pycocotools
-fastapi
-uvicorn
+psutil>=5.9
+requests>=2.31
+
+# Serving
+fastapi>=0.110
+uvicorn>=0.27
 python-multipart
-gradio
-requests
-onnxruntime
+pydantic>=2.0
+
+# UI (Gradio 4.44 - 6.x supported; styling adapts to the installed major version)
+gradio>=4.44,<7
+
+# Optional acceleration / export
+onnxruntime>=1.16

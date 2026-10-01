@@ -273,9 +273,9 @@ class TestRegression(unittest.TestCase):
         # Verify structure matches expected
         for key, expected_type in expected_structure.items():
             self.assertIn(key, val_output)
-            if expected_type == float:
+            if expected_type is float:
                 self.assertIsInstance(val_output[key], (int, float))
-            elif expected_type == list:
+            elif expected_type is list:
                 self.assertIsInstance(val_output[key], list)
             elif isinstance(expected_type, dict):
                 for subkey, subtype in expected_type.items():

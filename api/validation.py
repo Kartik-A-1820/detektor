@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import io
 from typing import Tuple
 
 import cv2
 import numpy as np
+from PIL import Image
 
 # Allowed MIME types for image uploads
 ALLOWED_MIME_TYPES = {
@@ -20,6 +22,9 @@ ALLOWED_MIME_TYPES = {
 # Maximum file size in bytes (default 10MB)
 DEFAULT_MAX_FILE_SIZE = 10 * 1024 * 1024
 
+# Hard cap on decoded pixel count (8192 x 8192) to stop decompression bombs.
+MAX_PIXELS = 8192 * 8192
+
 
 class ImageValidationError(Exception):
     """Raised when image validation fails."""
@@ -27,21 +32,25 @@ class ImageValidationError(Exception):
 
 
 def validate_mime_type(content_type: str | None) -> None:
-    """Validate that the uploaded file has an allowed MIME type.
+    """Validate the declared MIME type of an upload.
 
-    Args:
-        content_type: MIME type from upload
+    Many HTTP clients omit the part ``Content-Type`` or send the generic
+    ``application/octet-stream``; those are accepted here and the real check is the
+    decode step in :func:`validate_image_integrity`. An explicitly *wrong* type
+    (e.g. ``text/plain``) is still rejected.
 
     Raises:
-        ImageValidationError: If MIME type is invalid or not allowed
+        ImageValidationError: If an explicit MIME type is not an allowed image type
     """
-    if content_type is None:
-        raise ImageValidationError("No content type provided")
-
-    if content_type not in ALLOWED_MIME_TYPES:
+    if not content_type:
+        return
+    media_type = content_type.split(";", 1)[0].strip().lower()
+    if media_type in ("", "application/octet-stream"):
+        return
+    if media_type not in ALLOWED_MIME_TYPES:
         raise ImageValidationError(
             f"Invalid content type: {content_type}. "
-            f"Allowed types: {', '.join(ALLOWED_MIME_TYPES)}"
+            f"Allowed types: {', '.join(sorted(ALLOWED_MIME_TYPES))}"
         )
 
 
@@ -64,6 +73,15 @@ def validate_file_size(file_bytes: bytes, max_size: int = DEFAULT_MAX_FILE_SIZE)
         raise ImageValidationError("File is empty")
 
 
+def peek_image_size(file_bytes: bytes) -> Tuple[int, int] | None:
+    """Read (width, height) from the image header without decoding pixels; ``None`` if unreadable."""
+    try:
+        with Image.open(io.BytesIO(file_bytes)) as image:
+            return int(image.size[0]), int(image.size[1])
+    except Exception:  # noqa: BLE001 - any failure falls through to the full decode check
+        return None
+
+
 def validate_image_integrity(file_bytes: bytes) -> Tuple[int, int]:
     """Validate that the file is a valid, non-corrupt image.
 
@@ -76,6 +94,13 @@ def validate_image_integrity(file_bytes: bytes) -> Tuple[int, int]:
     Raises:
         ImageValidationError: If image is corrupt or cannot be decoded
     """
+    peeked = peek_image_size(file_bytes)
+    if peeked is not None and peeked[0] * peeked[1] > MAX_PIXELS:
+        # Decompression-bomb guard: refuse before allocating the decoded pixel buffer.
+        raise ImageValidationError(
+            f"Image dimensions {peeked[0]}x{peeked[1]} exceed the {MAX_PIXELS:,} pixel limit"
+        )
+
     np_bytes = np.frombuffer(file_bytes, dtype=np.uint8)
     image = cv2.imdecode(np_bytes, cv2.IMREAD_COLOR)
     if image is None:

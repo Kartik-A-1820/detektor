@@ -106,7 +106,6 @@ def compute_ap50_95(
         # Sort by score
         order = pred_scores.argsort(descending=True)
         pred_boxes_sorted = pred_boxes[order]
-        pred_scores_sorted = pred_scores[order]
         pred_labels_sorted = pred_labels[order]
 
         matched_gt = torch.zeros(gt_boxes.shape[0], dtype=torch.bool)
