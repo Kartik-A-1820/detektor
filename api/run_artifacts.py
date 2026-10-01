@@ -8,7 +8,6 @@ from typing import Any, Dict, List, Tuple
 import torch
 import yaml
 
-
 _PLOT_FILES = {
     "loss_total": "Loss Curve",
     "loss_components": "Loss Components",

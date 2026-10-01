@@ -22,9 +22,9 @@ class TestSchemas(unittest.TestCase):
     def test_health_response_serialization(self) -> None:
         """Test HealthResponse schema."""
         response = HealthResponse(status="ok", device="cuda", model_loaded=True)
-        
+
         data = response.model_dump()
-        
+
         self.assertEqual(data["status"], "ok")
         self.assertEqual(data["device"], "cuda")
         self.assertTrue(data["model_loaded"])
@@ -32,9 +32,9 @@ class TestSchemas(unittest.TestCase):
     def test_ready_response_serialization(self) -> None:
         """Test ReadyResponse schema."""
         response = ReadyResponse(ready=True, model_loaded=True, device="cpu")
-        
+
         data = response.model_dump()
-        
+
         self.assertTrue(data["ready"])
         self.assertTrue(data["model_loaded"])
         self.assertEqual(data["device"], "cpu")
@@ -42,9 +42,9 @@ class TestSchemas(unittest.TestCase):
     def test_version_response_serialization(self) -> None:
         """Test VersionResponse schema."""
         response = VersionResponse(version="1.0.0", model_type="ChimeraODIS", num_classes=4)
-        
+
         data = response.model_dump()
-        
+
         self.assertEqual(data["version"], "1.0.0")
         self.assertEqual(data["model_type"], "ChimeraODIS")
         self.assertEqual(data["num_classes"], 4)
@@ -52,9 +52,9 @@ class TestSchemas(unittest.TestCase):
     def test_version_response_optional_num_classes(self) -> None:
         """Test VersionResponse with optional num_classes."""
         response = VersionResponse(version="1.0.0", model_type="ChimeraODIS")
-        
+
         data = response.model_dump()
-        
+
         self.assertIsNone(data["num_classes"])
 
     def test_error_response_serialization(self) -> None:
@@ -65,9 +65,9 @@ class TestSchemas(unittest.TestCase):
             request_id="abc123",
             details={"field": "image"},
         )
-        
+
         data = response.model_dump()
-        
+
         self.assertEqual(data["error"], "ValidationError")
         self.assertEqual(data["message"], "Invalid input")
         self.assertEqual(data["request_id"], "abc123")
@@ -76,9 +76,9 @@ class TestSchemas(unittest.TestCase):
     def test_error_response_optional_fields(self) -> None:
         """Test ErrorResponse with optional fields."""
         response = ErrorResponse(error="Error", message="Something went wrong")
-        
+
         data = response.model_dump()
-        
+
         self.assertIsNone(data["request_id"])
         self.assertIsNone(data["details"])
 
@@ -90,9 +90,9 @@ class TestSchemas(unittest.TestCase):
             label=0,
             mask="base64encodedmask",
         )
-        
+
         data = detection.model_dump()
-        
+
         self.assertEqual(data["box"], [10.0, 20.0, 30.0, 40.0])
         self.assertEqual(data["score"], 0.95)
         self.assertEqual(data["label"], 0)
@@ -101,9 +101,9 @@ class TestSchemas(unittest.TestCase):
     def test_detection_optional_mask(self) -> None:
         """Test Detection without mask."""
         detection = Detection(box=[10.0, 20.0, 30.0, 40.0], score=0.95, label=0)
-        
+
         data = detection.model_dump()
-        
+
         self.assertIsNone(data["mask"])
 
     def test_prediction_response_serialization(self) -> None:
@@ -122,9 +122,9 @@ class TestSchemas(unittest.TestCase):
             image_height=480,
             inference_time_ms=42.5,
         )
-        
+
         data = response.model_dump()
-        
+
         self.assertEqual(data["request_id"], "req123")
         self.assertEqual(data["num_detections"], 2)
         self.assertEqual(len(data["detections"]), 2)
@@ -141,9 +141,9 @@ class TestSchemas(unittest.TestCase):
             image_width=640,
             image_height=480,
         )
-        
+
         data = response.model_dump()
-        
+
         self.assertIsNone(data["request_id"])
         self.assertIsNone(data["inference_time_ms"])
         self.assertIsNone(data["masks"])
@@ -168,16 +168,16 @@ class TestSchemas(unittest.TestCase):
             image_width=640,
             image_height=480,
         )
-        
+
         response = BatchPredictionResponse(
             request_id="batch123",
             num_images=2,
             predictions=[pred1, pred2],
             total_inference_time_ms=85.0,
         )
-        
+
         data = response.model_dump()
-        
+
         self.assertEqual(data["request_id"], "batch123")
         self.assertEqual(data["num_images"], 2)
         self.assertEqual(len(data["predictions"]), 2)
@@ -186,9 +186,9 @@ class TestSchemas(unittest.TestCase):
     def test_batch_prediction_response_optional_fields(self) -> None:
         """Test BatchPredictionResponse with optional fields."""
         response = BatchPredictionResponse(num_images=0, predictions=[])
-        
+
         data = response.model_dump()
-        
+
         self.assertIsNone(data["request_id"])
         self.assertIsNone(data["total_inference_time_ms"])
 
@@ -203,9 +203,9 @@ class TestSchemas(unittest.TestCase):
             p95_inference_time_ms=78.5,
             p99_inference_time_ms=90.1,
         )
-        
+
         data = response.model_dump()
-        
+
         self.assertEqual(data["total_requests"], 100)
         self.assertEqual(data["total_predictions"], 250)
         self.assertEqual(data["error_count"], 5)
@@ -223,9 +223,9 @@ class TestSchemas(unittest.TestCase):
             image_width=100,
             image_height=100,
         )
-        
+
         json_str = response.model_dump_json()
-        
+
         self.assertIsInstance(json_str, str)
         self.assertIn("request_id", json_str)
         self.assertIn("test", json_str)

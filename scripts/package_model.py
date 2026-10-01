@@ -5,7 +5,7 @@ import argparse
 import json
 import shutil
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Optional
 
 import yaml
 
@@ -15,7 +15,6 @@ from utils.artifacts import (
     extract_class_names,
     gather_environment_info,
     get_git_commit,
-    load_artifact_package,
     write_manifest,
 )
 

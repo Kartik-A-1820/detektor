@@ -7,7 +7,6 @@ from torch import Tensor
 
 from utils.box_ops import box_iou
 
-
 EPS = 1e-6
 
 

@@ -14,7 +14,7 @@ class TestRegression(unittest.TestCase):
 
     def test_prediction_response_schema_stability(self) -> None:
         """Test that PredictionResponse schema remains stable."""
-        from api.schemas import PredictionResponse, Detection
+        from api.schemas import Detection, PredictionResponse
 
         # This schema should remain stable for backward compatibility
         response = PredictionResponse(
@@ -217,7 +217,7 @@ class TestRegression(unittest.TestCase):
 
     def test_json_serialization_stability(self) -> None:
         """Test that JSON serialization is stable."""
-        from api.schemas import PredictionResponse, Detection
+        from api.schemas import Detection, PredictionResponse
 
         response = PredictionResponse(
             request_id="test",

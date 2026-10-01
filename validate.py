@@ -218,7 +218,7 @@ def validate(
     if not (0.0 <= conf_thresh <= 1.0):
         raise ValueError(f"conf_thresh must be in [0, 1], got {conf_thresh}")
 
-    with open(config_path, "r", encoding="utf-8") as handle:
+    with open(config_path, encoding="utf-8") as handle:
         fallback_cfg = yaml.safe_load(handle)
 
     checkpoint = torch.load(weights, map_location="cpu")

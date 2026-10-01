@@ -13,7 +13,12 @@ from datasets import build_dataset
 from engine.ema import ModelEMA
 from models.chimera import ChimeraODIS
 from models.factory import build_model_from_config, load_model_weights
-from utils.auto_train_config import plan_smart_retry, resolve_training_config, summarize_resolved_training, write_resolved_config
+from utils.auto_train_config import (
+    plan_smart_retry,
+    resolve_training_config,
+    summarize_resolved_training,
+    write_resolved_config,
+)
 from utils.checkpoints import build_checkpoint_payload, load_checkpoint, save_checkpoint
 from utils.collate import detection_segmentation_collate_fn
 from utils.logging_utils import append_jsonl, append_metrics_row, write_json

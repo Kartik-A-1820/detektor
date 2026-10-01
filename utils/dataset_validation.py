@@ -10,7 +10,6 @@ from pathlib import Path
 from typing import Dict, List, Optional, Set, Tuple
 
 import cv2
-import numpy as np
 
 
 @dataclass
@@ -61,7 +60,7 @@ def validate_image_file(image_path: Path) -> Optional[ValidationIssue]:
         return ValidationIssue(
             severity="error",
             category="missing_image",
-            message=f"Image file not found",
+            message="Image file not found",
             file_path=str(image_path),
         )
 
@@ -71,7 +70,7 @@ def validate_image_file(image_path: Path) -> Optional[ValidationIssue]:
             return ValidationIssue(
                 severity="error",
                 category="corrupt_image",
-                message=f"Image file is corrupt or unreadable",
+                message="Image file is corrupt or unreadable",
                 file_path=str(image_path),
             )
         if img.shape[0] == 0 or img.shape[1] == 0:
@@ -133,7 +132,7 @@ def validate_label_file(
                 ValidationIssue(
                     severity="error",
                     category="missing_label",
-                    message=f"Label file not found for image",
+                    message="Label file not found for image",
                     file_path=str(label_path),
                 )
             )
@@ -148,7 +147,7 @@ def validate_label_file(
                 ValidationIssue(
                     severity="warning",
                     category="empty_label",
-                    message=f"Label file is empty",
+                    message="Label file is empty",
                     file_path=str(label_path),
                 )
             )

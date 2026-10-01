@@ -6,9 +6,6 @@ import torch
 from torch import Tensor, nn
 
 from losses import DetectionLoss, SegmentationLoss
-from .blocks import ChimeraBackbone
-from .heads import DetectionHead, PrototypeMaskHead
-from .neck import ChimeraPANNeck
 from utils.anchors import concatenate_points_and_strides, generate_points_for_features
 from utils.box_ops import distances_to_boxes, flatten_prediction_levels
 from utils.mask_ops import (
@@ -16,11 +13,15 @@ from utils.mask_ops import (
     compose_instance_masks,
     crop_mask_region,
     flatten_mask_coefficients,
+    resize_instance_masks,
     threshold_masks,
     upsample_masks_to_image,
-    resize_instance_masks,
 )
 from utils.postprocess import build_empty_prediction, class_aware_nms, rescale_boxes, select_topk_candidates
+
+from .blocks import ChimeraBackbone
+from .heads import DetectionHead, PrototypeMaskHead
+from .neck import ChimeraPANNeck
 
 
 class ChimeraODIS(nn.Module):
@@ -208,7 +209,7 @@ class ChimeraODIS(nn.Module):
             strides=strides,
             targets=prepared_targets,
         )
-        
+
         # Task-aware mask loss computation
         if task == "detect":
             # Detection only - skip mask loss
@@ -230,7 +231,7 @@ class ChimeraODIS(nn.Module):
                 image_size=(imgs.shape[-2], imgs.shape[-1]),
             )
             loss_total = det_loss_dict["loss_total"] + self.mask_weight * mask_loss_dict["loss_mask"]
-        
+
         loss_dict = {
             "loss_total": loss_total,
             "loss_cls": det_loss_dict["loss_cls"],
@@ -393,7 +394,7 @@ class ChimeraODIS(nn.Module):
                 from_size=model_image_size,
                 to_size=original_sizes[batch_index],
             )
-            
+
             # Task-aware mask generation
             result = {
                 "boxes": scaled_boxes,
@@ -405,7 +406,7 @@ class ChimeraODIS(nn.Module):
                     dtype=torch.bool if not return_mask_probs else imgs.dtype,
                 ),
             }
-            
+
             if task == "segment":
                 # Generate masks for segmentation mode
                 proto_per_image = proto[batch_index]
@@ -431,7 +432,7 @@ class ChimeraODIS(nn.Module):
                     )
                     if not return_mask_probs:
                         masks = masks >= 0.5
-                
+
                 result["masks"] = masks
 
             predictions.append(result)

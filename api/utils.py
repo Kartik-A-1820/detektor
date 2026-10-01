@@ -36,11 +36,11 @@ def load_model(
     """Load a ChimeraODIS model once for service or CLI inference."""
     device = resolve_device(device_name)
     checkpoint = torch.load(weights, map_location=device)
-    
+
     if num_classes is None:
         num_classes = _detect_num_classes(checkpoint)
         print(f"[INFO] auto-detected num_classes={num_classes} from checkpoint")
-    
+
     model = build_model_from_checkpoint(checkpoint, num_classes=num_classes, proto_k=proto_k).to(device)
     load_model_weights(model, checkpoint, strict=True)
     model.eval()

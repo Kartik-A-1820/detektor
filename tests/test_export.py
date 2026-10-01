@@ -8,7 +8,7 @@ import torch
 
 from export import ExportWrapper
 from models.chimera import ChimeraODIS
-from utils.export_utils import create_dummy_input, get_dynamic_axes, get_export_names
+from utils.export_utils import create_dummy_input, get_dynamic_axes, get_export_names, torch_onnx_export
 from utils.parity import compare_pytorch_onnx
 
 
@@ -44,7 +44,7 @@ class ExportSmokeTests(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as tmp_dir:
             output_path = Path(tmp_dir) / "detektor_test.onnx"
-            torch.onnx.export(
+            torch_onnx_export(
                 wrapper,
                 dummy,
                 str(output_path),

@@ -1,11 +1,12 @@
 from __future__ import annotations
 
-import yaml
 from pathlib import Path
 from typing import Dict, List, Optional
 
 import cv2
+import numpy as np
 import torch
+import yaml
 from torch import Tensor
 
 from models.factory import build_model_from_checkpoint, infer_num_classes_from_checkpoint, load_model_weights
@@ -74,11 +75,11 @@ def infer(
     """Run ChimeraODIS inference on one image and optionally save a visualization."""
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     checkpoint = torch.load(weights, map_location=device)
-    
+
     if num_classes is None:
         num_classes = _detect_num_classes(checkpoint)
         print(f"auto-detected num_classes={num_classes} from checkpoint")
-    
+
     model = build_model_from_checkpoint(checkpoint, num_classes=num_classes).to(device)
     load_model_weights(model, checkpoint, strict=True)
     model.eval()
@@ -100,7 +101,7 @@ def infer(
     num_det = int(predictions["boxes"].shape[0])
     score_list = [round(float(score), 4) for score in predictions["scores"].detach().cpu()]
     label_list = [int(label) for label in predictions["labels"].detach().cpu()]
-    
+
     if class_names:
         label_names = [class_names[label] for label in label_list]
         print(f"detections: {num_det}")
@@ -110,7 +111,7 @@ def infer(
         print(f"detections: {num_det}")
         print(f"labels: {label_list}")
         print(f"scores: {score_list}")
-    
+
     if task == "segment" and "masks" in predictions:
         print(f"mask_count: {int(predictions['masks'].shape[0])}")
 
@@ -143,35 +144,35 @@ def infer_folder(
     source_path = Path(source_dir)
     output_path = Path(output_dir)
     output_path.mkdir(parents=True, exist_ok=True)
-    
+
     image_extensions = [".jpg", ".jpeg", ".png", ".bmp", ".webp"]
     image_files = [f for f in source_path.iterdir() if f.suffix.lower() in image_extensions]
-    
+
     if not image_files:
         print(f"no images found in {source_dir}")
         return
-    
+
     print(f"found {len(image_files)} images in {source_dir}")
     print(f"saving results to {output_dir}")
-    
+
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     checkpoint = torch.load(weights, map_location=device)
-    
+
     if num_classes is None:
         num_classes = _detect_num_classes(checkpoint)
         print(f"auto-detected num_classes={num_classes} from checkpoint")
-    
+
     model = build_model_from_checkpoint(checkpoint, num_classes=num_classes).to(device)
     load_model_weights(model, checkpoint, strict=True)
     model.eval()
-    
+
     for idx, image_file in enumerate(image_files, start=1):
         print(f"\n[{idx}/{len(image_files)}] processing: {image_file.name}")
-        
+
         try:
             image_tensor, original_rgb, original_size = _prepare_image(str(image_file), image_size=image_size)
             image_tensor = image_tensor.to(device)
-            
+
             predictions = model.predict(
                 image_tensor,
                 original_sizes=[original_size],
@@ -182,28 +183,28 @@ def infer_folder(
                 mask_thresh=mask_thresh,
                 task=task,
             )[0]
-            
+
             num_det = int(predictions["boxes"].shape[0])
             label_list = [int(label) for label in predictions["labels"].detach().cpu()]
-            
+
             if class_names:
                 label_names = [class_names[label] for label in label_list]
                 print(f"  detections: {num_det}, labels: {label_names}")
             else:
                 print(f"  detections: {num_det}, labels: {label_list}")
-            
+
             vis_image = original_rgb.copy()
             vis_image = draw_boxes(vis_image, predictions["boxes"].detach().cpu().numpy())
             vis_bgr = cv2.cvtColor(vis_image, cv2.COLOR_RGB2BGR)
-            
+
             output_file = output_path / f"{image_file.stem}_pred{image_file.suffix}"
             cv2.imwrite(str(output_file), vis_bgr)
             print(f"  saved: {output_file.name}")
-        
+
         except Exception as e:
             print(f"  error processing {image_file.name}: {e}")
             continue
-    
+
     print(f"\ncompleted: processed {len(image_files)} images")
     print(f"results saved to: {output_dir}")
 
@@ -225,16 +226,16 @@ if __name__ == "__main__":
     parser.add_argument("--save-path", type=str, default="", help="Output path for single image or folder for batch")
     parser.add_argument("--task", type=str, default="segment", choices=["detect", "segment"], help="Task mode: 'detect' (boxes only) or 'segment' (boxes + masks)")
     args = parser.parse_args()
-    
+
     class_names = None
     if args.data_yaml:
-        with open(args.data_yaml, "r") as f:
+        with open(args.data_yaml) as f:
             data_config = yaml.safe_load(f)
             class_names = data_config.get("names", None)
             print(f"loaded class names: {class_names}")
-    
+
     source_path = Path(args.source)
-    
+
     if source_path.is_dir():
         output_dir = args.save_path if args.save_path else "runs/inference"
         infer_folder(

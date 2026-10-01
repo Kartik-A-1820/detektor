@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 import time
-from typing import Any, Dict, Sequence, Tuple
+from typing import Any, Dict, Tuple
 
 import torch
-from torch import Tensor, nn
+from torch import nn
 
 
 def _sync_if_cuda(device: torch.device) -> None:

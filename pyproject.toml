@@ -1,0 +1,38 @@
+# Tooling configuration only. Detektor is run from a source checkout (see README); the
+# top-level package names (utils, models, datasets, ...) are intentionally not published
+# to PyPI because they would collide with other projects (e.g. Hugging Face `datasets`).
+
+[tool.ruff]
+line-length = 120
+target-version = "py310"
+extend-exclude = ["runs", "artifacts", "reports", "docs"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP"]
+ignore = [
+    "E501",   # line length is enforced by the formatter, not the linter
+    "E402",   # sys.path-style imports in scripts
+    "B008",   # FastAPI Depends()/Query() defaults are idiomatic
+    "B905",   # zip() without strict=
+    "UP006", "UP007", "UP035", "UP045", "UP037",  # keep typing.List/Optional style used across the codebase
+    "B904",   # raise ... from err inside except (legacy call sites)
+    "B007", "B023", "B028", "B017",
+]
+
+[tool.ruff.lint.isort]
+known-first-party = ["api", "benchmarks", "datasets", "engine", "losses", "metrics", "models", "scripts", "ui", "utils"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["B", "F401", "F841", "E741"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+filterwarnings = [
+    "ignore:Using `httpx` with `starlette.testclient` is deprecated:DeprecationWarning",
+    "ignore::starlette.exceptions.StarletteDeprecationWarning",
+]
+
+[tool.black]
+line-length = 120
+target-version = ["py310"]
+extend-exclude = "(runs|artifacts|reports)/"

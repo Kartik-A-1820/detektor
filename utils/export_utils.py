@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from pathlib import Path
 from typing import Any, Dict, Tuple
 
 import torch
@@ -9,14 +8,13 @@ from torch import Tensor
 
 from models.chimera import ChimeraODIS
 
-
 EXPORT_INPUT_NAME = "images"
 EXPORT_OUTPUT_NAMES = ["cls_flat", "box_flat", "obj_flat", "mask_coeff_flat", "proto"]
 
 
 def load_config(config_path: str) -> Dict[str, Any]:
     """Load a YAML export configuration."""
-    with open(config_path, "r", encoding="utf-8") as handle:
+    with open(config_path, encoding="utf-8") as handle:
         return yaml.safe_load(handle)
 
 
@@ -77,3 +75,17 @@ def get_export_output_shapes(model: ChimeraODIS, dummy_input: Tensor) -> Dict[st
         outputs = model.forward_export(dummy_input)
     _, output_names = get_export_names()
     return {name: tuple(output.shape) for name, output in zip(output_names, outputs)}
+
+
+def torch_onnx_export(model: torch.nn.Module, dummy_input: torch.Tensor, path: str, **kwargs: Any) -> None:
+    """``torch.onnx.export`` pinned to the stable TorchScript exporter.
+
+    PyTorch >= 2.9 defaults to the dynamo exporter, which needs the extra ``onnxscript``
+    package and produces a different graph. Detektor's export contract (tensor-only outputs,
+    dynamic batch axes, parity checks) is validated against the TorchScript exporter, so we
+    request it explicitly and fall back gracefully on older PyTorch versions.
+    """
+    try:
+        torch.onnx.export(model, dummy_input, path, dynamo=False, **kwargs)
+    except TypeError:  # PyTorch < 2.5 has no ``dynamo`` argument
+        torch.onnx.export(model, dummy_input, path, **kwargs)

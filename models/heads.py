@@ -32,7 +32,7 @@ class DetectionHead(nn.Module):
         self.mask_preds = nn.ModuleList(
             [nn.Conv2d(feat_channels, num_mask_coeffs, kernel_size=1) for _ in in_channels]
         )
-        
+
         # Initialize weights (Ultralytics-style)
         self._initialize_weights()
 
@@ -41,11 +41,11 @@ class DetectionHead(nn.Module):
             ConvBNAct(in_channels, feat_channels, kernel_size=3, stride=1),
             ConvBNAct(feat_channels, feat_channels, kernel_size=3, stride=1),
         )
-    
+
     def _initialize_weights(self) -> None:
         """Initialize weights to prevent NaN in early training (Ultralytics-style)."""
         import math
-        
+
         # Initialize prediction heads with small values
         for module_list in [self.cls_preds, self.box_preds, self.obj_preds, self.mask_preds]:
             for m in module_list:
@@ -54,7 +54,7 @@ class DetectionHead(nn.Module):
                     nn.init.normal_(m.weight, mean=0.0, std=0.01)
                     if m.bias is not None:
                         nn.init.constant_(m.bias, 0.0)
-        
+
         # Special initialization for classification head (reduce initial confidence)
         # This prevents extreme logits early in training
         for m in self.cls_preds:

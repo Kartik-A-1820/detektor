@@ -22,6 +22,7 @@ def main() -> None:
 
     def check_model_forward() -> None:
         import torch
+
         from models.chimera import ChimeraODIS
 
         model = ChimeraODIS(num_classes=1, proto_k=24).eval()
@@ -30,6 +31,7 @@ def main() -> None:
 
     def check_model_export_forward() -> None:
         import torch
+
         from models.chimera import ChimeraODIS
 
         model = ChimeraODIS(num_classes=1, proto_k=24).eval()
@@ -38,6 +40,7 @@ def main() -> None:
 
     def check_predict_structure() -> None:
         import torch
+
         from models.chimera import ChimeraODIS
 
         model = ChimeraODIS(num_classes=1, proto_k=24).eval()

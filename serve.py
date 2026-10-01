@@ -20,6 +20,7 @@ from fastapi.responses import JSONResponse, PlainTextResponse
 from api import __version__ as API_PACKAGE_VERSION
 from api.inference import InferenceService
 from api.logging_utils import (
+    RequestTimer,
     generate_request_id,
     get_request_id,
     log_error,
@@ -27,11 +28,9 @@ from api.logging_utils import (
     log_response,
     set_request_id,
     setup_logging,
-    RequestTimer,
 )
 from api.metrics import get_metrics_store
 from api.run_artifacts import discover_checkpoint_options, load_run_artifacts
-from api.security import make_api_key_dependency, sanitize_request_id
 from api.schemas import (
     BatchPredictionResponse,
     ErrorResponse,
@@ -41,9 +40,9 @@ from api.schemas import (
     ReadyResponse,
     VersionResponse,
 )
+from api.security import make_api_key_dependency, sanitize_request_id
 from api.utils import load_model
 from api.validation import ImageValidationError, validate_uploaded_image
-
 
 LOGGER = logging.getLogger("detektor.serve")
 
@@ -176,26 +175,26 @@ def create_app(config: ServiceConfig) -> FastAPI:
     """Create the production-ready FastAPI app for detektor inference serving."""
     with MODEL_STORE.lock:
         MODEL_STORE.config = config
-    
+
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         # Setup structured logging
         setup_logging(level=config.log_level)
-        
+
         LOGGER.info("Starting Detektor API v%s", API_VERSION)
         LOGGER.info("Requested weights: %s", config.weights)
         _load_service(config, config.weights, warmup_iterations=config.warmup_iterations)
         LOGGER.info("Service ready to accept requests")
         yield
         LOGGER.info("Shutting down service")
-    
+
     app = FastAPI(
         title="Detektor Production Inference API",
         version=API_VERSION,
         description="Production-ready object detection and instance segmentation API",
         lifespan=lifespan,
     )
-    
+
     require_api_key = make_api_key_dependency(config.api_key)
     protected = [Depends(require_api_key)]
     inference_slots = asyncio.Semaphore(max(1, int(config.max_concurrency)))
@@ -237,14 +236,14 @@ def create_app(config: ServiceConfig) -> FastAPI:
         response.headers.setdefault("X-Content-Type-Options", "nosniff")
         response.headers.setdefault("Referrer-Policy", "no-referrer")
         return response
-    
+
     # Exception handlers
     @app.exception_handler(ImageValidationError)
     async def validation_error_handler(request: Request, exc: ImageValidationError):
         request_id = get_request_id()
         log_error(LOGGER, exc, request_id=request_id)
         get_metrics_store().record_request(0.0, 0, error=True)
-        
+
         return JSONResponse(
             status_code=400,
             content=ErrorResponse(
@@ -253,13 +252,13 @@ def create_app(config: ServiceConfig) -> FastAPI:
                 request_id=request_id,
             ).model_dump(),
         )
-    
+
     @app.exception_handler(Exception)
     async def general_exception_handler(request: Request, exc: Exception):
         request_id = get_request_id()
         log_error(LOGGER, exc, request_id=request_id)
         get_metrics_store().record_request(0.0, 0, error=True)
-        
+
         return JSONResponse(
             status_code=500,
             content=ErrorResponse(
@@ -280,20 +279,20 @@ def create_app(config: ServiceConfig) -> FastAPI:
             device=str(service.device) if service is not None else "uninitialized",
             model_loaded=service is not None,
         )
-    
+
     @app.get("/ready", response_model=ReadyResponse, tags=["Health"])
     async def ready() -> ReadyResponse:
         """Readiness check endpoint - returns ready only if model is loaded."""
         with MODEL_STORE.lock:
             service = MODEL_STORE.inference_service
         is_ready = service is not None
-        
+
         return ReadyResponse(
             ready=is_ready,
             model_loaded=is_ready,
             device=str(service.device) if service is not None else "uninitialized",
         )
-    
+
     @app.get("/version", response_model=VersionResponse, tags=["Health"])
     async def version() -> VersionResponse:
         """Version information endpoint."""
@@ -304,7 +303,7 @@ def create_app(config: ServiceConfig) -> FastAPI:
             model_type="ChimeraODIS",
             num_classes=num_classes,
         )
-    
+
     @app.get("/metrics", response_model=MetricsResponse, tags=["Monitoring"], dependencies=protected)
     async def metrics() -> MetricsResponse:
         """Service metrics endpoint."""
@@ -353,10 +352,10 @@ def create_app(config: ServiceConfig) -> FastAPI:
             service, active_config = get_service_snapshot()
         except RuntimeError as exc:
             raise HTTPException(status_code=503, detail=str(exc)) from exc
-        
+
         request_id = get_request_id()
         log_request(LOGGER, "POST", "/v1/predict", request_id or "-")
-        
+
         # Read and validate image
         image_bytes = await image.read()
         max_size_bytes = active_config.max_upload_size_mb * 1024 * 1024
@@ -365,7 +364,7 @@ def create_app(config: ServiceConfig) -> FastAPI:
             image.content_type,
             max_file_size=max_size_bytes,
         )
-        
+
         # Run inference
         async with inference_slots:
             response_data, inference_time = await run_in_threadpool(
@@ -376,13 +375,13 @@ def create_app(config: ServiceConfig) -> FastAPI:
                 max_det=max_det,
                 include_masks=include_masks,
             )
-        
+
         # Add request ID
         response_data["request_id"] = request_id
-        
+
         # Record metrics
         get_metrics_store().record_request(inference_time, response_data["num_detections"])
-        
+
         log_response(
             LOGGER,
             "POST",
@@ -392,16 +391,16 @@ def create_app(config: ServiceConfig) -> FastAPI:
             request_id or "-",
             detections=response_data["num_detections"],
         )
-        
+
         return PredictionResponse(**response_data)
-    
+
     @app.post("/predict", response_model=PredictionResponse, tags=["Prediction"], deprecated=True, dependencies=protected)
     async def predict_legacy(
         image: UploadFile = File(...),
         include_masks: bool = Query(default=config.include_masks_default),
     ) -> PredictionResponse:
         """Legacy prediction endpoint - maintained for backward compatibility.
-        
+
         Use /v1/predict for new integrations.
         """
         return await predict_v1(
@@ -411,7 +410,7 @@ def create_app(config: ServiceConfig) -> FastAPI:
             max_det=None,
             include_masks=include_masks,
         )
-    
+
     @app.post("/v1/predict_batch", response_model=BatchPredictionResponse, tags=["Prediction"], dependencies=protected)
     async def predict_batch(
         images: List[UploadFile] = File(..., description="List of image files"),
@@ -425,24 +424,24 @@ def create_app(config: ServiceConfig) -> FastAPI:
             service, active_config = get_service_snapshot()
         except RuntimeError as exc:
             raise HTTPException(status_code=503, detail=str(exc)) from exc
-        
+
         request_id = get_request_id()
         log_request(LOGGER, "POST", "/v1/predict_batch", request_id or "-", num_images=len(images))
-        
+
         # Validate batch size
         if len(images) > active_config.max_batch_size:
             raise HTTPException(
                 status_code=400,
                 detail=f"Batch size {len(images)} exceeds maximum {active_config.max_batch_size}",
             )
-        
+
         if len(images) == 0:
             raise HTTPException(status_code=400, detail="No images provided")
-        
+
         # Read and validate all images
         images_bytes = []
         max_size_bytes = active_config.max_upload_size_mb * 1024 * 1024
-        
+
         for idx, img in enumerate(images):
             img_bytes = await img.read()
             try:
@@ -457,7 +456,7 @@ def create_app(config: ServiceConfig) -> FastAPI:
                     status_code=400,
                     detail=f"Image {idx} validation failed: {str(e)}",
                 )
-        
+
         # Run batch inference
         async with inference_slots:
             predictions, total_time = await run_in_threadpool(
@@ -468,15 +467,15 @@ def create_app(config: ServiceConfig) -> FastAPI:
                 max_det=max_det,
                 include_masks=include_masks,
             )
-        
+
         # Add request IDs to individual predictions
         for pred in predictions:
             pred["request_id"] = request_id
-        
+
         # Record metrics
         total_detections = sum(p["num_detections"] for p in predictions)
         get_metrics_store().record_request(total_time, total_detections)
-        
+
         log_response(
             LOGGER,
             "POST",
@@ -487,14 +486,14 @@ def create_app(config: ServiceConfig) -> FastAPI:
             num_images=len(predictions),
             total_detections=total_detections,
         )
-        
+
         response = BatchPredictionResponse(
             request_id=request_id,
             num_images=len(predictions),
             predictions=[PredictionResponse(**p) for p in predictions],
             total_inference_time_ms=total_time,
         )
-        
+
         return response
 
     return app
@@ -506,7 +505,7 @@ def main() -> None:
         description="Start the Detektor Production FastAPI Inference Service",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
-    
+
     # Required arguments
     parser.add_argument(
         "--weights",
@@ -515,7 +514,7 @@ def main() -> None:
         required=os.getenv("DETEKTOR_WEIGHTS") is None,
         help="Path to model weights or checkpoint (env: DETEKTOR_WEIGHTS)",
     )
-    
+
     # Server configuration
     parser.add_argument(
         "--host",
@@ -535,7 +534,7 @@ def main() -> None:
         default=os.getenv("DETEKTOR_DEVICE", "auto"),
         help="Inference device: auto, cpu, or cuda (env: DETEKTOR_DEVICE)",
     )
-    
+
     # Model configuration
     parser.add_argument(
         "--num-classes",
@@ -555,7 +554,7 @@ def main() -> None:
         default=int(os.getenv("DETEKTOR_IMG_SIZE", "512")),
         help="Square model input size (env: DETEKTOR_IMG_SIZE)",
     )
-    
+
     # Inference defaults
     parser.add_argument(
         "--conf-thresh",
@@ -593,7 +592,7 @@ def main() -> None:
         default=os.getenv("DETEKTOR_INCLUDE_MASKS", "false").lower() == "true",
         help="Include masks by default (env: DETEKTOR_INCLUDE_MASKS)",
     )
-    
+
     # Service configuration
     parser.add_argument(
         "--max-upload-size-mb",
@@ -638,7 +637,7 @@ def main() -> None:
         default=os.getenv("DETEKTOR_UI_PATH", "/ui"),
         help="Path where the GUI will be mounted when --ui is enabled (env: DETEKTOR_UI_PATH)",
     )
-    
+
     parser.add_argument(
         "--ui-auth",
         type=str,
@@ -693,7 +692,7 @@ def main() -> None:
         cors_origins=[origin.strip() for origin in args.cors_origins.split(",") if origin.strip()],
         max_concurrency=args.max_concurrency,
     )
-    
+
     app = create_app(config)
     if config.ui_enabled:
         import gradio as gr

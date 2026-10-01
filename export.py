@@ -14,6 +14,7 @@ from utils.export_utils import (
     load_config,
     load_model_weights,
     resolve_device,
+    torch_onnx_export,
 )
 from utils.parity import compare_pytorch_onnx
 
@@ -57,7 +58,7 @@ def export_onnx(
     output_path_obj = Path(output_path)
     output_path_obj.parent.mkdir(parents=True, exist_ok=True)
 
-    torch.onnx.export(
+    torch_onnx_export(
         wrapper,
         dummy_input,
         str(output_path_obj),

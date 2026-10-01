@@ -12,7 +12,6 @@ from typing import List
 import yaml
 
 from utils.dataset_validation import (
-    DatasetStats,
     ValidationIssue,
     ValidationResult,
     collect_class_distribution,
@@ -221,7 +220,7 @@ def print_summary(result: ValidationResult) -> None:
     print("VALIDATION SUMMARY")
     print("=" * 80)
 
-    print(f"\nDataset Statistics:")
+    print("\nDataset Statistics:")
     print(f"  Total images: {result.stats.total_images}")
     print(f"  Total labels: {result.stats.total_labels}")
     print(f"  Total annotations: {result.stats.total_annotations}")
@@ -229,14 +228,14 @@ def print_summary(result: ValidationResult) -> None:
     print(f"  Corrupt images: {result.stats.corrupt_images}")
 
     if result.stats.class_distribution:
-        print(f"\nClass Distribution:")
+        print("\nClass Distribution:")
         for class_id in sorted(result.stats.class_distribution.keys()):
             count = result.stats.class_distribution[class_id]
             percentage = (count / result.stats.total_annotations * 100) if result.stats.total_annotations > 0 else 0
             print(f"  Class {class_id}: {count} annotations ({percentage:.1f}%)")
 
     if result.stats.image_size_distribution:
-        print(f"\nImage Size Distribution (top 5):")
+        print("\nImage Size Distribution (top 5):")
         sorted_sizes = sorted(
             result.stats.image_size_distribution.items(),
             key=lambda x: x[1],
@@ -253,7 +252,7 @@ def print_summary(result: ValidationResult) -> None:
         if len(result.stats.duplicate_filenames) > 5:
             print(f"  ... and {len(result.stats.duplicate_filenames) - 5} more")
 
-    print(f"\nValidation Issues:")
+    print("\nValidation Issues:")
     print(f"  Errors: {sum(1 for issue in result.issues if issue.severity == 'error')}")
     print(f"  Warnings: {sum(1 for issue in result.issues if issue.severity == 'warning')}")
 

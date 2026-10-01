@@ -3,8 +3,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Dict, Mapping, Optional
 
-import torch
-
 from .chimera import ChimeraODIS
 
 
@@ -171,8 +169,11 @@ def build_model_from_checkpoint(
         resolved_num_classes = int(
             num_classes if num_classes is not None else checkpoint_model_cfg.get("num_classes", infer_num_classes_from_checkpoint(checkpoint))
         )
+        # Checkpoint metadata is authoritative: a mismatched ``proto_k`` could never load
+        # (strict state-dict shapes), so the argument only applies to legacy checkpoints.
         resolved_proto_k = int(
-            proto_k if proto_k is not None else checkpoint_model_cfg.get("proto_k", infer_proto_k_from_checkpoint(checkpoint))
+            checkpoint_model_cfg.get("proto_k")
+            or (proto_k if proto_k is not None else infer_proto_k_from_checkpoint(checkpoint))
         )
         model_cfg = dict(checkpoint_model_cfg)
         model_cfg["proto_k"] = resolved_proto_k

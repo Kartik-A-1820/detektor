@@ -18,15 +18,15 @@ class TestConfigParsing(unittest.TestCase):
             "model": {"num_classes": 4, "proto_k": 24},
             "train": {"batch_size": 8, "epochs": 100},
         }
-        
+
         with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
             yaml.dump(config_data, f)
             config_path = f.name
-        
+
         try:
-            with open(config_path, "r") as handle:
+            with open(config_path) as handle:
                 loaded = yaml.safe_load(handle)
-            
+
             self.assertEqual(loaded["model"]["num_classes"], 4)
             self.assertEqual(loaded["train"]["batch_size"], 8)
         finally:
@@ -40,15 +40,15 @@ class TestConfigParsing(unittest.TestCase):
             "nc": 4,
             "names": ["ball", "goalkeeper", "player", "referee"],
         }
-        
+
         with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
             yaml.dump(data_yaml, f)
             yaml_path = f.name
-        
+
         try:
-            with open(yaml_path, "r") as handle:
+            with open(yaml_path) as handle:
                 loaded = yaml.safe_load(handle)
-            
+
             self.assertEqual(loaded["nc"], 4)
             self.assertIsInstance(loaded["names"], list)
             self.assertEqual(len(loaded["names"]), 4)
@@ -64,19 +64,19 @@ class TestConfigParsing(unittest.TestCase):
             "nc": 4,
             "names": {0: "ball", 1: "goalkeeper", 2: "player", 3: "referee"},
         }
-        
+
         with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
             yaml.dump(data_yaml, f)
             yaml_path = f.name
-        
+
         try:
-            with open(yaml_path, "r") as handle:
+            with open(yaml_path) as handle:
                 loaded = yaml.safe_load(handle)
-            
+
             self.assertEqual(loaded["nc"], 4)
             self.assertIsInstance(loaded["names"], dict)
             self.assertEqual(loaded["names"][0], "ball")
-            
+
             # Convert dict to list
             names_list = [name for _, name in sorted(loaded["names"].items())]
             self.assertEqual(names_list, ["ball", "goalkeeper", "player", "referee"])
@@ -92,15 +92,15 @@ class TestConfigParsing(unittest.TestCase):
             "nc": 2,
             "names": ["class0", "class1"],
         }
-        
+
         with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
             yaml.dump(data_yaml, f)
             yaml_path = f.name
-        
+
         try:
-            with open(yaml_path, "r") as handle:
+            with open(yaml_path) as handle:
                 loaded = yaml.safe_load(handle)
-            
+
             self.assertIn("train", loaded)
             self.assertIn("val", loaded)
             self.assertIn("test", loaded)
@@ -120,15 +120,15 @@ class TestConfigParsing(unittest.TestCase):
                 "scheduler": {"type": "cosine", "warmup_epochs": 3},
             },
         }
-        
+
         with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
             yaml.dump(config_data, f)
             config_path = f.name
-        
+
         try:
-            with open(config_path, "r") as handle:
+            with open(config_path) as handle:
                 loaded = yaml.safe_load(handle)
-            
+
             self.assertEqual(loaded["model"]["backbone"]["type"], "resnet")
             self.assertEqual(loaded["train"]["optimizer"]["lr"], 0.001)
         finally:
@@ -137,15 +137,15 @@ class TestConfigParsing(unittest.TestCase):
     def test_config_with_defaults(self) -> None:
         """Test that missing keys can be handled with defaults."""
         config_data = {"model": {"num_classes": 4}}
-        
+
         with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
             yaml.dump(config_data, f)
             config_path = f.name
-        
+
         try:
-            with open(config_path, "r") as handle:
+            with open(config_path) as handle:
                 loaded = yaml.safe_load(handle)
-            
+
             # Test default value handling
             proto_k = loaded.get("model", {}).get("proto_k", 24)
             self.assertEqual(proto_k, 24)
@@ -157,11 +157,11 @@ class TestConfigParsing(unittest.TestCase):
         with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
             yaml.dump({}, f)
             config_path = f.name
-        
+
         try:
-            with open(config_path, "r") as handle:
+            with open(config_path) as handle:
                 loaded = yaml.safe_load(handle)
-            
+
             self.assertEqual(loaded, {})
         finally:
             Path(config_path).unlink()

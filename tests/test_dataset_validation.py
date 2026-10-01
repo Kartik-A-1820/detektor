@@ -14,13 +14,13 @@ from check_dataset import print_summary
 from utils.dataset_validation import (
     DatasetStats,
     ValidationIssue,
+    ValidationResult,
     collect_class_distribution,
     find_duplicate_filenames,
     get_image_size,
     validate_image_file,
     validate_label_file,
     write_validation_summary,
-    ValidationResult,
 )
 
 
@@ -350,7 +350,7 @@ class TestDatasetValidationIntegration(unittest.TestCase):
             img = np.zeros((100, 100, 3), dtype=np.uint8)
             cv2.imwrite(str(img_path), img)
 
-            label_path.write_text(f"0 0.5 0.5 0.2 0.3\n1 0.3 0.4 0.1 0.15\n")
+            label_path.write_text("0 0.5 0.5 0.2 0.3\n1 0.3 0.4 0.1 0.15\n")
 
         # Create valid val images and labels
         for i in range(2):
@@ -360,7 +360,7 @@ class TestDatasetValidationIntegration(unittest.TestCase):
             img = np.zeros((100, 100, 3), dtype=np.uint8)
             cv2.imwrite(str(img_path), img)
 
-            label_path.write_text(f"1 0.6 0.7 0.15 0.2\n")
+            label_path.write_text("1 0.6 0.7 0.15 0.2\n")
 
         # Create one image with missing label
         missing_label_img = train_images / "missing_label.jpg"

@@ -19,7 +19,6 @@ import matplotlib.pyplot as plt
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 
-
 DEFAULT_BACKEND_URL = os.getenv("DETEKTOR_UI_BACKEND", "http://localhost:8000")
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".bmp", ".webp"}
 _FONT = None
@@ -194,24 +193,24 @@ def _encode_multipart_formdata(
     body = bytearray()
 
     for name, value in fields.items():
-        body.extend(f"--{boundary}\r\n".encode("utf-8"))
-        body.extend(f'Content-Disposition: form-data; name="{name}"\r\n\r\n'.encode("utf-8"))
+        body.extend(f"--{boundary}\r\n".encode())
+        body.extend(f'Content-Disposition: form-data; name="{name}"\r\n\r\n'.encode())
         body.extend(str(value).encode("utf-8"))
         body.extend(b"\r\n")
 
     for field_name, filename, content, content_type in files:
-        body.extend(f"--{boundary}\r\n".encode("utf-8"))
+        body.extend(f"--{boundary}\r\n".encode())
         body.extend(
             (
                 f'Content-Disposition: form-data; name="{field_name}"; '
                 f'filename="{filename}"\r\n'
-            ).encode("utf-8")
+            ).encode()
         )
-        body.extend(f"Content-Type: {content_type}\r\n\r\n".encode("utf-8"))
+        body.extend(f"Content-Type: {content_type}\r\n\r\n".encode())
         body.extend(content)
         body.extend(b"\r\n")
 
-    body.extend(f"--{boundary}--\r\n".encode("utf-8"))
+    body.extend(f"--{boundary}--\r\n".encode())
     return bytes(body), f"multipart/form-data; boundary={boundary}"
 
 
@@ -606,7 +605,7 @@ def _normalize_file_inputs(file_inputs: Optional[List[Any]]) -> List[Path]:
         elif isinstance(file_obj, dict) and "name" in file_obj:
             path = file_obj["name"]
         elif hasattr(file_obj, "name"):
-            path = getattr(file_obj, "name")
+            path = file_obj.name
         if path:
             candidate = Path(path)
             if candidate.exists() and candidate.suffix.lower() in IMAGE_EXTENSIONS:

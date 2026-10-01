@@ -13,7 +13,6 @@ import yaml
 from models.factory import ARCHITECTURE_PROFILES
 from utils.data_config import apply_dataset_yaml_overrides
 
-
 DEFAULT_TRAINING_CONFIG: Dict[str, Any] = {
     "device": "auto",
     "seed": 42,
@@ -418,7 +417,7 @@ def resolve_training_config(
     explicit_logging_cfg: Dict[str, Any] = {}
     explicit_root_cfg: Dict[str, Any] = {}
     if config_path:
-        with open(config_path, "r", encoding="utf-8") as handle:
+        with open(config_path, encoding="utf-8") as handle:
             loaded_cfg = yaml.safe_load(handle) or {}
         explicit_root_cfg = {
             key: copy.deepcopy(value)

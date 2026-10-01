@@ -1,5 +1,5 @@
 import cv2
-import numpy as np
+
 
 def draw_boxes(img, boxes):
     for box in boxes:

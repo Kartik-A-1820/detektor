@@ -67,3 +67,26 @@ class CheckpointTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestCheckpointMetadataPrecedence(unittest.TestCase):
+    """Regression: a default ``proto_k`` must not override the checkpoint's model config."""
+
+    def test_checkpoint_proto_k_wins_over_default_argument(self) -> None:
+        import torch
+
+        from models.factory import (
+            build_model_from_checkpoint,
+            build_model_from_model_config,
+            load_model_weights,
+            resolve_model_config,
+        )
+
+        cfg = resolve_model_config({"profile": "firefly"}, num_classes=3)  # firefly uses proto_k=16
+        source = build_model_from_model_config(cfg, num_classes=3)
+        checkpoint = {"model_state": source.state_dict(), "model_config": cfg}
+
+        rebuilt = build_model_from_checkpoint(checkpoint, num_classes=3, proto_k=24)
+        self.assertEqual(rebuilt.proto_k, 16)
+        load_model_weights(rebuilt, checkpoint, strict=True)
+        self.assertTrue(torch.equal(rebuilt.state_dict()["proto_head.pred.weight"], source.state_dict()["proto_head.pred.weight"]))

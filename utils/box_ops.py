@@ -1,11 +1,10 @@
 from __future__ import annotations
 
-from typing import Sequence, Tuple
+from typing import Sequence
 
 import torch
 import torch.nn.functional as F
 from torch import Tensor
-
 
 EPS = 1e-7
 
@@ -38,7 +37,7 @@ def distances_to_boxes(points: Tensor, distances: Tensor) -> Tensor:
     # Sanitize distances to prevent NaN from model initialization
     distances = torch.nan_to_num(distances, nan=0.0, posinf=1000.0, neginf=0.0)
     distances = distances.clamp(min=-1000.0, max=1000.0)
-    
+
     positive = F.relu(distances)
     px = points[:, 0].view(1, -1)
     py = points[:, 1].view(1, -1)
@@ -52,12 +51,12 @@ def distances_to_boxes(points: Tensor, distances: Tensor) -> Tensor:
     y1 = py - top
     x2 = px + right
     y2 = py + bottom
-    
+
     # Sanitize final boxes
     boxes = torch.stack((x1, y1, x2, y2), dim=-1)
     boxes = torch.nan_to_num(boxes, nan=0.0, posinf=1000.0, neginf=0.0)
     boxes = boxes.clamp(min=-1000.0, max=1000.0)
-    
+
     return boxes
 
 
@@ -131,16 +130,16 @@ def ciou_loss(pred_boxes: Tensor, target_boxes: Tensor) -> Tensor:
     # Robust aspect ratio computation
     v = (4.0 / (torch.pi ** 2)) * torch.pow(torch.atan(tw / th) - torch.atan(pw / ph), 2)
     v = v.clamp(min=0.0, max=4.0)  # Clamp to reasonable range
-    
+
     # Robust alpha computation
     alpha_denom = (1.0 - iou + v).clamp(min=EPS)
     alpha = (v / alpha_denom).clamp(min=0.0, max=1.0)
-    
+
     # Robust distance ratio
     dist_ratio = (center_dist / enc_diag.clamp(min=EPS)).clamp(min=0.0, max=1.0)
-    
+
     # Compute CIoU with clamping
     ciou = iou - dist_ratio - alpha * v
     ciou = ciou.clamp(min=-1.0, max=1.0)
-    
+
     return (1.0 - ciou).clamp(min=0.0, max=2.0)
