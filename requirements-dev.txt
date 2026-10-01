@@ -1,5 +1,5 @@
 -r requirements.txt
-pytest>=8.0
+pytest>=9.1.1
 ruff>=0.5
 black>=24.0
 isort>=5.13
