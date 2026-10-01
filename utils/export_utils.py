@@ -85,6 +85,7 @@ def torch_onnx_export(model: torch.nn.Module, dummy_input: torch.Tensor, path: s
     dynamic batch axes, parity checks) is validated against the TorchScript exporter, so we
     request it explicitly and fall back gracefully on older PyTorch versions.
     """
+    model.eval()  # never trace BatchNorm/Dropout in training mode (see tests/test_export.py)
     try:
         torch.onnx.export(model, dummy_input, path, dynamo=False, **kwargs)
     except TypeError:  # PyTorch < 2.5 has no ``dynamo`` argument

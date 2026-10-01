@@ -38,6 +38,16 @@ and the project aims to follow [Semantic Versioning](https://semver.org/).
 - Python source cleaned with `ruff` (whitespace, import order, unused names).
 
 ### Fixed
+- **ONNX exports were numerically wrong for trained models.** `export.py` traced through a wrapper left in training
+  mode, which flipped the inner model to training mode and baked BatchNorm *batch statistics* into the graph (max
+  output difference ≈ 50 vs PyTorch; 1e-5 after the fix). Export now forces eval mode in both `export.py` and the shared
+  helper, `--check-parity` reports failures (and exits 2), and a regression test covers it.
+- **`export.py` only worked for the default architecture and failed on CPU-only machines.** It rebuilt the model from the
+  YAML config (ignoring the checkpoint's profile) and honoured a `device: cuda` config. The model, class count and input
+  size now come from the checkpoint; `--device` defaults to `cpu`; `--config` is optional.
+- **Serving/inference ran models at 512 px regardless of training size** (`--img-size` defaulted to 512), silently
+  degrading quality for models trained at other resolutions. `serve.py`, `infer.py` and `scripts.cli` now default to the
+  input size recorded in the checkpoint (explicit `--img-size` still wins; fallback 512).
 - **Instance masks covered almost the whole image.** `ChimeraODIS.predict` cropped mask *logits* to 0 outside the box,
   then applied `sigmoid` (→ 0.5) and thresholded with `>= 0.5`, so every pixel outside every box counted as foreground
   (mean mask IoU 0.04 on a trained model; **0.75** after the fix, same checkpoint). Masks are now cropped in probability
@@ -52,7 +62,7 @@ and the project aims to follow [Semantic Versioning](https://semver.org/).
 - Decompression-bomb guard: oversized images are rejected from the header before pixel decoding.
 - `PredictionResponse.masks` rejected `null` entries; `compute_ap50` was missing from `utils.metrics_helpers`;
   report generation crashed when the epoch summary used `avg_loss` instead of `epoch_loss`.
-- Ten previously failing tests (stale expectations and the issues above); the suite is green (190+ tests).
+- Ten previously failing tests (stale expectations and the issues above); the suite is green (235+ tests).
 - `.gitignore` ignored the `datasets/` Python package; compiled `__pycache__` files were tracked.
 
 ## [Unreleased]

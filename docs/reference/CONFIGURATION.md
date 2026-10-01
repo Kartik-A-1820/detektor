@@ -10,7 +10,7 @@ Every `serve.py` option can be set by CLI flag **or** environment variable (flag
 | `--device` | `DETEKTOR_DEVICE` | `auto` | `auto`, `cpu`, `cuda` |
 | `--num-classes` | `DETEKTOR_NUM_CLASSES` | auto | Override the class count inferred from the checkpoint |
 | `--proto-k` | `DETEKTOR_PROTO_K` | `24` | Legacy fallback for checkpoints without embedded model metadata (ignored otherwise) |
-| `--img-size` | `DETEKTOR_IMG_SIZE` | `512` | Square network input size |
+| `--img-size` | `DETEKTOR_IMG_SIZE` | checkpoint's training size (else `512`) | Square network input size. Leave unset so the model is served at the resolution it was trained at |
 
 ## Inference defaults (overridable per request)
 

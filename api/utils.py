@@ -9,7 +9,12 @@ import torch
 from torch import Tensor
 
 from models.chimera import ChimeraODIS
-from models.factory import build_model_from_checkpoint, infer_num_classes_from_checkpoint, load_model_weights
+from models.factory import (
+    build_model_from_checkpoint,
+    checkpoint_train_img_size,
+    infer_num_classes_from_checkpoint,
+    load_model_weights,
+)
 from utils.visualize import draw_boxes
 
 
@@ -44,6 +49,7 @@ def load_model(
     model = build_model_from_checkpoint(checkpoint, num_classes=num_classes, proto_k=proto_k).to(device)
     load_model_weights(model, checkpoint, strict=True)
     model.eval()
+    model.train_img_size = checkpoint_train_img_size(checkpoint)  # None for bare state dicts
     return model, device
 
 

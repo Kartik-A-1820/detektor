@@ -93,6 +93,26 @@ def infer_num_classes_from_checkpoint(checkpoint: Dict[str, Any]) -> int:
     return 1
 
 
+def checkpoint_train_img_size(checkpoint: Any) -> Optional[int]:
+    """Return the square input size a checkpoint was trained at, if its metadata records it.
+
+    Serving/inference should default to this size: running a model at a different resolution
+    than it was trained at silently degrades detection quality.
+    """
+    if not isinstance(checkpoint, Mapping):
+        return None
+    config = checkpoint.get("config")
+    if isinstance(config, Mapping):
+        train_cfg = config.get("train")
+        if isinstance(train_cfg, Mapping):
+            try:
+                size = int(train_cfg.get("img_size") or 0)
+            except (TypeError, ValueError):
+                return None
+            return size if size > 0 else None
+    return None
+
+
 def infer_proto_k_from_checkpoint(checkpoint: Dict[str, Any]) -> int:
     """Infer prototype mask channel count from a checkpoint payload or state dict."""
     state_dict = checkpoint.get("model_state", checkpoint) if isinstance(checkpoint, dict) else checkpoint

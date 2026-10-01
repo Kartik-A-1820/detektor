@@ -1,0 +1,2305 @@
+{
+  "schema_version": 1,
+  "environment": {
+    "timestamp_utc": "2026-10-01T18:07:43+00:00",
+    "git_revision": "58a9631",
+    "python": "3.11.15",
+    "platform": "Linux-6.18.44-fc-v50-x86_64-with-glibc2.39",
+    "cpu_model": "Intel(R) Xeon(R) Processor @ 2.10GHz",
+    "cpu_cores_physical": 4,
+    "cpu_cores_logical": 4,
+    "ram_gb": 15.72,
+    "torch": "2.14.1+cu130",
+    "torch_threads": 4,
+    "device": "cpu",
+    "cuda_available": false,
+    "torchvision": "0.29.1+cu130",
+    "onnxruntime": "1.30.0"
+  },
+  "config": {
+    "suites": [
+      "complexity",
+      "latency",
+      "throughput",
+      "memory",
+      "training",
+      "startup",
+      "onnx",
+      "api",
+      "e2e",
+      "robustness",
+      "accuracy"
+    ],
+    "profiles": [
+      "firefly",
+      "comet",
+      "nova",
+      "pulsar",
+      "quasar",
+      "supernova"
+    ],
+    "device": "cpu",
+    "img_sizes": [
+      320,
+      512
+    ],
+    "img_size": 512,
+    "batch_sizes": [
+      1,
+      2,
+      4,
+      8
+    ],
+    "warmup": 5,
+    "runs": 30,
+    "seed": 0,
+    "quick": false
+  },
+  "suites": {
+    "complexity": {
+      "description": "Parameters, GFLOPs and model size per architecture profile and input size",
+      "num_classes": 4,
+      "rows": [
+        {
+          "profile": "firefly",
+          "img_size": 320,
+          "params_m": 1.396,
+          "trainable_params_m": 1.396,
+          "gflops": 1.702,
+          "gmacs": 0.851,
+          "size_fp32_mb": 5.32,
+          "size_fp16_mb": 2.66
+        },
+        {
+          "profile": "firefly",
+          "img_size": 512,
+          "params_m": 1.396,
+          "trainable_params_m": 1.396,
+          "gflops": 4.356,
+          "gmacs": 2.178,
+          "size_fp32_mb": 5.32,
+          "size_fp16_mb": 2.66
+        },
+        {
+          "profile": "comet",
+          "img_size": 320,
+          "params_m": 2.472,
+          "trainable_params_m": 2.472,
+          "gflops": 2.83,
+          "gmacs": 1.415,
+          "size_fp32_mb": 9.43,
+          "size_fp16_mb": 4.71
+        },
+        {
+          "profile": "comet",
+          "img_size": 512,
+          "params_m": 2.472,
+          "trainable_params_m": 2.472,
+          "gflops": 7.244,
+          "gmacs": 3.622,
+          "size_fp32_mb": 9.43,
+          "size_fp16_mb": 4.71
+        },
+        {
+          "profile": "nova",
+          "img_size": 320,
+          "params_m": 4.7,
+          "trainable_params_m": 4.7,
+          "gflops": 5.691,
+          "gmacs": 2.846,
+          "size_fp32_mb": 17.93,
+          "size_fp16_mb": 8.96
+        },
+        {
+          "profile": "nova",
+          "img_size": 512,
+          "params_m": 4.7,
+          "trainable_params_m": 4.7,
+          "gflops": 14.57,
+          "gmacs": 7.285,
+          "size_fp32_mb": 17.93,
+          "size_fp16_mb": 8.96
+        },
+        {
+          "profile": "pulsar",
+          "img_size": 320,
+          "params_m": 9.126,
+          "trainable_params_m": 9.126,
+          "gflops": 10.279,
+          "gmacs": 5.14,
+          "size_fp32_mb": 34.81,
+          "size_fp16_mb": 17.41
+        },
+        {
+          "profile": "pulsar",
+          "img_size": 512,
+          "params_m": 9.126,
+          "trainable_params_m": 9.126,
+          "gflops": 26.315,
+          "gmacs": 13.158,
+          "size_fp32_mb": 34.81,
+          "size_fp16_mb": 17.41
+        },
+        {
+          "profile": "quasar",
+          "img_size": 320,
+          "params_m": 9.61,
+          "trainable_params_m": 9.61,
+          "gflops": 10.376,
+          "gmacs": 5.188,
+          "size_fp32_mb": 36.66,
+          "size_fp16_mb": 18.33
+        },
+        {
+          "profile": "quasar",
+          "img_size": 512,
+          "params_m": 9.61,
+          "trainable_params_m": 9.61,
+          "gflops": 26.563,
+          "gmacs": 13.281,
+          "size_fp32_mb": 36.66,
+          "size_fp16_mb": 18.33
+        },
+        {
+          "profile": "supernova",
+          "img_size": 320,
+          "params_m": 15.0,
+          "trainable_params_m": 15.0,
+          "gflops": 16.718,
+          "gmacs": 8.359,
+          "size_fp32_mb": 57.22,
+          "size_fp16_mb": 28.61
+        },
+        {
+          "profile": "supernova",
+          "img_size": 512,
+          "params_m": 15.0,
+          "trainable_params_m": 15.0,
+          "gflops": 42.798,
+          "gmacs": 21.399,
+          "size_fp32_mb": 57.22,
+          "size_fp16_mb": 28.61
+        }
+      ],
+      "status": "ok",
+      "duration_s": 3.0
+    },
+    "latency": {
+      "description": "Batch-1 latency with preprocess / forward / postprocess breakdown (p50/p95/p99)",
+      "source_image": "synthetic 1280x720 JPEG",
+      "scenarios": {
+        "default": {
+          "conf_thresh": 0.25
+        },
+        "dense": {
+          "conf_thresh": 0.001
+        },
+        "dense_boxes": {
+          "conf_thresh": 0.001,
+          "task": "detect"
+        }
+      },
+      "warmup": 5,
+      "runs": 30,
+      "rows": [
+        {
+          "profile": "firefly",
+          "img_size": 320,
+          "device": "cpu",
+          "preprocess": {
+            "n": 30,
+            "mean_ms": 6.889,
+            "std_ms": 2.427,
+            "min_ms": 4.931,
+            "p50_ms": 6.316,
+            "p90_ms": 8.027,
+            "p95_ms": 11.038,
+            "p99_ms": 15.874,
+            "max_ms": 16.939,
+            "fps": 145.15
+          },
+          "forward": {
+            "n": 30,
+            "mean_ms": 31.212,
+            "std_ms": 4.747,
+            "min_ms": 24.64,
+            "p50_ms": 29.481,
+            "p90_ms": 39.047,
+            "p95_ms": 39.898,
+            "p99_ms": 41.779,
+            "max_ms": 42.269,
+            "fps": 32.04
+          },
+          "predict_default": {
+            "n": 30,
+            "mean_ms": 36.574,
+            "std_ms": 8.992,
+            "min_ms": 28.063,
+            "p50_ms": 33.818,
+            "p90_ms": 46.263,
+            "p95_ms": 50.842,
+            "p99_ms": 67.632,
+            "max_ms": 73.112,
+            "fps": 27.34,
+            "postprocess_p50_ms": 4.337,
+            "detections": 0
+          },
+          "predict_dense": {
+            "n": 30,
+            "mean_ms": 279.776,
+            "std_ms": 24.901,
+            "min_ms": 246.344,
+            "p50_ms": 272.843,
+            "p90_ms": 321.052,
+            "p95_ms": 329.318,
+            "p99_ms": 335.824,
+            "max_ms": 336.4,
+            "fps": 3.57,
+            "postprocess_p50_ms": 243.362,
+            "detections": 100
+          },
+          "predict_dense_boxes": {
+            "n": 30,
+            "mean_ms": 52.05,
+            "std_ms": 6.005,
+            "min_ms": 44.377,
+            "p50_ms": 50.432,
+            "p90_ms": 60.147,
+            "p95_ms": 62.504,
+            "p99_ms": 67.163,
+            "max_ms": 69.022,
+            "fps": 19.21,
+            "postprocess_p50_ms": 20.951,
+            "detections": 100
+          },
+          "e2e_p50_ms": 40.134
+        },
+        {
+          "profile": "firefly",
+          "img_size": 512,
+          "device": "cpu",
+          "preprocess": {
+            "n": 30,
+            "mean_ms": 5.625,
+            "std_ms": 0.513,
+            "min_ms": 5.228,
+            "p50_ms": 5.437,
+            "p90_ms": 6.058,
+            "p95_ms": 6.304,
+            "p99_ms": 7.46,
+            "max_ms": 7.857,
+            "fps": 177.76
+          },
+          "forward": {
+            "n": 30,
+            "mean_ms": 50.73,
+            "std_ms": 11.192,
+            "min_ms": 39.97,
+            "p50_ms": 47.33,
+            "p90_ms": 63.292,
+            "p95_ms": 75.989,
+            "p99_ms": 81.545,
+            "max_ms": 82.115,
+            "fps": 19.71
+          },
+          "predict_default": {
+            "n": 30,
+            "mean_ms": 45.666,
+            "std_ms": 5.61,
+            "min_ms": 38.709,
+            "p50_ms": 44.896,
+            "p90_ms": 50.264,
+            "p95_ms": 55.994,
+            "p99_ms": 62.978,
+            "max_ms": 64.169,
+            "fps": 21.9,
+            "postprocess_p50_ms": 0.0,
+            "detections": 0
+          },
+          "predict_dense": {
+            "n": 30,
+            "mean_ms": 318.662,
+            "std_ms": 21.329,
+            "min_ms": 287.504,
+            "p50_ms": 313.963,
+            "p90_ms": 349.281,
+            "p95_ms": 356.794,
+            "p99_ms": 360.368,
+            "max_ms": 361.016,
+            "fps": 3.14,
+            "postprocess_p50_ms": 266.633,
+            "detections": 100
+          },
+          "predict_dense_boxes": {
+            "n": 30,
+            "mean_ms": 72.314,
+            "std_ms": 10.389,
+            "min_ms": 58.119,
+            "p50_ms": 69.069,
+            "p90_ms": 85.423,
+            "p95_ms": 88.823,
+            "p99_ms": 98.298,
+            "max_ms": 101.447,
+            "fps": 13.83,
+            "postprocess_p50_ms": 21.739,
+            "detections": 100
+          },
+          "e2e_p50_ms": 50.333
+        },
+        {
+          "profile": "comet",
+          "img_size": 320,
+          "device": "cpu",
+          "preprocess": {
+            "n": 30,
+            "mean_ms": 6.478,
+            "std_ms": 3.147,
+            "min_ms": 4.836,
+            "p50_ms": 5.246,
+            "p90_ms": 8.18,
+            "p95_ms": 14.179,
+            "p99_ms": 17.147,
+            "max_ms": 17.614,
+            "fps": 154.36
+          },
+          "forward": {
+            "n": 30,
+            "mean_ms": 39.159,
+            "std_ms": 10.431,
+            "min_ms": 29.273,
+            "p50_ms": 36.657,
+            "p90_ms": 46.543,
+            "p95_ms": 57.518,
+            "p99_ms": 75.299,
+            "max_ms": 80.611,
+            "fps": 25.54
+          },
+          "predict_default": {
+            "n": 30,
+            "mean_ms": 32.23,
+            "std_ms": 4.388,
+            "min_ms": 27.991,
+            "p50_ms": 30.68,
+            "p90_ms": 36.364,
+            "p95_ms": 37.028,
+            "p99_ms": 47.43,
+            "max_ms": 51.62,
+            "fps": 31.03,
+            "postprocess_p50_ms": 0.0,
+            "detections": 0
+          },
+          "predict_dense": {
+            "n": 30,
+            "mean_ms": 266.113,
+            "std_ms": 17.926,
+            "min_ms": 237.779,
+            "p50_ms": 263.247,
+            "p90_ms": 288.936,
+            "p95_ms": 292.965,
+            "p99_ms": 302.778,
+            "max_ms": 306.101,
+            "fps": 3.76,
+            "postprocess_p50_ms": 226.59,
+            "detections": 100
+          },
+          "predict_dense_boxes": {
+            "n": 30,
+            "mean_ms": 58.74,
+            "std_ms": 5.539,
+            "min_ms": 50.272,
+            "p50_ms": 58.225,
+            "p90_ms": 67.534,
+            "p95_ms": 67.894,
+            "p99_ms": 70.386,
+            "max_ms": 71.331,
+            "fps": 17.02,
+            "postprocess_p50_ms": 21.568,
+            "detections": 100
+          },
+          "e2e_p50_ms": 35.926
+        },
+        {
+          "profile": "comet",
+          "img_size": 512,
+          "device": "cpu",
+          "preprocess": {
+            "n": 30,
+            "mean_ms": 5.431,
+            "std_ms": 0.376,
+            "min_ms": 4.978,
+            "p50_ms": 5.348,
+            "p90_ms": 5.946,
+            "p95_ms": 6.029,
+            "p99_ms": 6.66,
+            "max_ms": 6.892,
+            "fps": 184.14
+          },
+          "forward": {
+            "n": 30,
+            "mean_ms": 65.663,
+            "std_ms": 13.885,
+            "min_ms": 50.326,
+            "p50_ms": 63.687,
+            "p90_ms": 87.227,
+            "p95_ms": 94.3,
+            "p99_ms": 98.248,
+            "max_ms": 99.845,
+            "fps": 15.23
+          },
+          "predict_default": {
+            "n": 30,
+            "mean_ms": 66.311,
+            "std_ms": 14.041,
+            "min_ms": 54.792,
+            "p50_ms": 61.762,
+            "p90_ms": 77.0,
+            "p95_ms": 90.426,
+            "p99_ms": 116.285,
+            "max_ms": 123.318,
+            "fps": 15.08,
+            "postprocess_p50_ms": 0.0,
+            "detections": 0
+          },
+          "predict_dense": {
+            "n": 30,
+            "mean_ms": 352.797,
+            "std_ms": 29.231,
+            "min_ms": 307.432,
+            "p50_ms": 351.053,
+            "p90_ms": 390.113,
+            "p95_ms": 404.529,
+            "p99_ms": 409.844,
+            "max_ms": 411.13,
+            "fps": 2.83,
+            "postprocess_p50_ms": 287.366,
+            "detections": 100
+          },
+          "predict_dense_boxes": {
+            "n": 30,
+            "mean_ms": 89.04,
+            "std_ms": 10.512,
+            "min_ms": 72.585,
+            "p50_ms": 86.486,
+            "p90_ms": 101.841,
+            "p95_ms": 106.085,
+            "p99_ms": 112.761,
+            "max_ms": 115.197,
+            "fps": 11.23,
+            "postprocess_p50_ms": 22.799,
+            "detections": 100
+          },
+          "e2e_p50_ms": 67.11
+        },
+        {
+          "profile": "nova",
+          "img_size": 320,
+          "device": "cpu",
+          "preprocess": {
+            "n": 30,
+            "mean_ms": 5.667,
+            "std_ms": 0.619,
+            "min_ms": 5.062,
+            "p50_ms": 5.35,
+            "p90_ms": 6.723,
+            "p95_ms": 6.757,
+            "p99_ms": 7.115,
+            "max_ms": 7.26,
+            "fps": 176.45
+          },
+          "forward": {
+            "n": 30,
+            "mean_ms": 50.742,
+            "std_ms": 7.423,
+            "min_ms": 41.382,
+            "p50_ms": 50.603,
+            "p90_ms": 61.636,
+            "p95_ms": 64.0,
+            "p99_ms": 66.646,
+            "max_ms": 67.46,
+            "fps": 19.71
+          },
+          "predict_default": {
+            "n": 30,
+            "mean_ms": 51.103,
+            "std_ms": 6.68,
+            "min_ms": 42.043,
+            "p50_ms": 50.584,
+            "p90_ms": 60.085,
+            "p95_ms": 62.56,
+            "p99_ms": 65.166,
+            "max_ms": 65.937,
+            "fps": 19.57,
+            "postprocess_p50_ms": 0.0,
+            "detections": 0
+          },
+          "predict_dense": {
+            "n": 30,
+            "mean_ms": 276.583,
+            "std_ms": 13.735,
+            "min_ms": 257.993,
+            "p50_ms": 274.944,
+            "p90_ms": 293.642,
+            "p95_ms": 297.686,
+            "p99_ms": 313.67,
+            "max_ms": 319.196,
+            "fps": 3.62,
+            "postprocess_p50_ms": 224.341,
+            "detections": 100
+          },
+          "predict_dense_boxes": {
+            "n": 30,
+            "mean_ms": 72.109,
+            "std_ms": 7.039,
+            "min_ms": 60.719,
+            "p50_ms": 72.303,
+            "p90_ms": 79.916,
+            "p95_ms": 85.019,
+            "p99_ms": 87.738,
+            "max_ms": 88.567,
+            "fps": 13.87,
+            "postprocess_p50_ms": 21.7,
+            "detections": 100
+          },
+          "e2e_p50_ms": 55.934
+        },
+        {
+          "profile": "nova",
+          "img_size": 512,
+          "device": "cpu",
+          "preprocess": {
+            "n": 30,
+            "mean_ms": 5.483,
+            "std_ms": 0.355,
+            "min_ms": 5.069,
+            "p50_ms": 5.372,
+            "p90_ms": 5.923,
+            "p95_ms": 6.185,
+            "p99_ms": 6.398,
+            "max_ms": 6.414,
+            "fps": 182.39
+          },
+          "forward": {
+            "n": 30,
+            "mean_ms": 87.379,
+            "std_ms": 6.731,
+            "min_ms": 74.851,
+            "p50_ms": 87.102,
+            "p90_ms": 97.51,
+            "p95_ms": 98.664,
+            "p99_ms": 101.733,
+            "max_ms": 102.786,
+            "fps": 11.44
+          },
+          "predict_default": {
+            "n": 30,
+            "mean_ms": 91.473,
+            "std_ms": 12.865,
+            "min_ms": 74.635,
+            "p50_ms": 86.12,
+            "p90_ms": 112.217,
+            "p95_ms": 114.714,
+            "p99_ms": 125.153,
+            "max_ms": 128.979,
+            "fps": 10.93,
+            "postprocess_p50_ms": 0.0,
+            "detections": 0
+          },
+          "predict_dense": {
+            "n": 30,
+            "mean_ms": 367.964,
+            "std_ms": 23.132,
+            "min_ms": 333.083,
+            "p50_ms": 366.789,
+            "p90_ms": 395.676,
+            "p95_ms": 415.742,
+            "p99_ms": 424.013,
+            "max_ms": 426.245,
+            "fps": 2.72,
+            "postprocess_p50_ms": 279.687,
+            "detections": 100
+          },
+          "predict_dense_boxes": {
+            "n": 30,
+            "mean_ms": 116.183,
+            "std_ms": 14.137,
+            "min_ms": 101.946,
+            "p50_ms": 111.172,
+            "p90_ms": 140.898,
+            "p95_ms": 144.603,
+            "p99_ms": 148.855,
+            "max_ms": 150.134,
+            "fps": 8.61,
+            "postprocess_p50_ms": 24.07,
+            "detections": 100
+          },
+          "e2e_p50_ms": 91.492
+        },
+        {
+          "profile": "pulsar",
+          "img_size": 320,
+          "device": "cpu",
+          "preprocess": {
+            "n": 30,
+            "mean_ms": 5.464,
+            "std_ms": 1.506,
+            "min_ms": 4.901,
+            "p50_ms": 5.091,
+            "p90_ms": 5.881,
+            "p95_ms": 6.568,
+            "p99_ms": 11.342,
+            "max_ms": 13.121,
+            "fps": 183.02
+          },
+          "forward": {
+            "n": 30,
+            "mean_ms": 59.842,
+            "std_ms": 6.506,
+            "min_ms": 51.721,
+            "p50_ms": 58.923,
+            "p90_ms": 66.779,
+            "p95_ms": 70.251,
+            "p99_ms": 78.778,
+            "max_ms": 82.171,
+            "fps": 16.71
+          },
+          "predict_default": {
+            "n": 30,
+            "mean_ms": 67.959,
+            "std_ms": 12.581,
+            "min_ms": 53.836,
+            "p50_ms": 64.647,
+            "p90_ms": 81.073,
+            "p95_ms": 84.813,
+            "p99_ms": 109.445,
+            "max_ms": 118.315,
+            "fps": 14.71,
+            "postprocess_p50_ms": 5.724,
+            "detections": 0
+          },
+          "predict_dense": {
+            "n": 30,
+            "mean_ms": 288.809,
+            "std_ms": 15.683,
+            "min_ms": 268.183,
+            "p50_ms": 283.739,
+            "p90_ms": 310.933,
+            "p95_ms": 317.581,
+            "p99_ms": 325.351,
+            "max_ms": 328.122,
+            "fps": 3.46,
+            "postprocess_p50_ms": 224.816,
+            "detections": 100
+          },
+          "predict_dense_boxes": {
+            "n": 30,
+            "mean_ms": 94.741,
+            "std_ms": 9.615,
+            "min_ms": 78.623,
+            "p50_ms": 93.402,
+            "p90_ms": 108.296,
+            "p95_ms": 110.878,
+            "p99_ms": 112.946,
+            "max_ms": 113.187,
+            "fps": 10.56,
+            "postprocess_p50_ms": 34.479,
+            "detections": 100
+          },
+          "e2e_p50_ms": 69.738
+        },
+        {
+          "profile": "pulsar",
+          "img_size": 512,
+          "device": "cpu",
+          "preprocess": {
+            "n": 30,
+            "mean_ms": 6.7,
+            "std_ms": 2.592,
+            "min_ms": 5.049,
+            "p50_ms": 6.097,
+            "p90_ms": 6.658,
+            "p95_ms": 8.973,
+            "p99_ms": 16.97,
+            "max_ms": 19.544,
+            "fps": 149.25
+          },
+          "forward": {
+            "n": 30,
+            "mean_ms": 119.151,
+            "std_ms": 13.308,
+            "min_ms": 100.108,
+            "p50_ms": 117.698,
+            "p90_ms": 141.691,
+            "p95_ms": 143.439,
+            "p99_ms": 147.784,
+            "max_ms": 149.539,
+            "fps": 8.39
+          },
+          "predict_default": {
+            "n": 30,
+            "mean_ms": 120.604,
+            "std_ms": 11.32,
+            "min_ms": 106.688,
+            "p50_ms": 118.391,
+            "p90_ms": 131.819,
+            "p95_ms": 140.829,
+            "p99_ms": 153.387,
+            "max_ms": 157.861,
+            "fps": 8.29,
+            "postprocess_p50_ms": 0.693,
+            "detections": 0
+          },
+          "predict_dense": {
+            "n": 30,
+            "mean_ms": 406.85,
+            "std_ms": 29.922,
+            "min_ms": 360.407,
+            "p50_ms": 402.887,
+            "p90_ms": 451.279,
+            "p95_ms": 455.281,
+            "p99_ms": 459.83,
+            "max_ms": 460.745,
+            "fps": 2.46,
+            "postprocess_p50_ms": 285.189,
+            "detections": 100
+          },
+          "predict_dense_boxes": {
+            "n": 30,
+            "mean_ms": 179.233,
+            "std_ms": 31.498,
+            "min_ms": 138.814,
+            "p50_ms": 168.464,
+            "p90_ms": 219.347,
+            "p95_ms": 240.272,
+            "p99_ms": 255.989,
+            "max_ms": 260.456,
+            "fps": 5.58,
+            "postprocess_p50_ms": 50.766,
+            "detections": 100
+          },
+          "e2e_p50_ms": 124.488
+        },
+        {
+          "profile": "quasar",
+          "img_size": 320,
+          "device": "cpu",
+          "preprocess": {
+            "n": 30,
+            "mean_ms": 6.771,
+            "std_ms": 3.618,
+            "min_ms": 4.946,
+            "p50_ms": 5.427,
+            "p90_ms": 10.516,
+            "p95_ms": 13.519,
+            "p99_ms": 19.739,
+            "max_ms": 21.869,
+            "fps": 147.7
+          },
+          "forward": {
+            "n": 30,
+            "mean_ms": 63.03,
+            "std_ms": 9.636,
+            "min_ms": 51.168,
+            "p50_ms": 61.622,
+            "p90_ms": 73.655,
+            "p95_ms": 77.788,
+            "p99_ms": 92.077,
+            "max_ms": 97.784,
+            "fps": 15.87
+          },
+          "predict_default": {
+            "n": 30,
+            "mean_ms": 66.996,
+            "std_ms": 11.811,
+            "min_ms": 52.413,
+            "p50_ms": 63.537,
+            "p90_ms": 84.006,
+            "p95_ms": 87.816,
+            "p99_ms": 88.56,
+            "max_ms": 88.822,
+            "fps": 14.93,
+            "postprocess_p50_ms": 1.915,
+            "detections": 0
+          },
+          "predict_dense": {
+            "n": 30,
+            "mean_ms": 294.159,
+            "std_ms": 17.481,
+            "min_ms": 265.53,
+            "p50_ms": 290.878,
+            "p90_ms": 317.882,
+            "p95_ms": 323.468,
+            "p99_ms": 332.322,
+            "max_ms": 335.012,
+            "fps": 3.4,
+            "postprocess_p50_ms": 229.256,
+            "detections": 100
+          },
+          "predict_dense_boxes": {
+            "n": 30,
+            "mean_ms": 88.815,
+            "std_ms": 14.858,
+            "min_ms": 75.323,
+            "p50_ms": 84.265,
+            "p90_ms": 105.322,
+            "p95_ms": 110.929,
+            "p99_ms": 139.768,
+            "max_ms": 150.294,
+            "fps": 11.26,
+            "postprocess_p50_ms": 22.643,
+            "detections": 100
+          },
+          "e2e_p50_ms": 68.964
+        },
+        {
+          "profile": "quasar",
+          "img_size": 512,
+          "device": "cpu",
+          "preprocess": {
+            "n": 30,
+            "mean_ms": 5.48,
+            "std_ms": 0.73,
+            "min_ms": 5.055,
+            "p50_ms": 5.333,
+            "p90_ms": 5.651,
+            "p95_ms": 6.125,
+            "p99_ms": 8.295,
+            "max_ms": 9.035,
+            "fps": 182.49
+          },
+          "forward": {
+            "n": 30,
+            "mean_ms": 133.694,
+            "std_ms": 17.137,
+            "min_ms": 108.125,
+            "p50_ms": 129.858,
+            "p90_ms": 147.184,
+            "p95_ms": 167.371,
+            "p99_ms": 180.425,
+            "max_ms": 181.508,
+            "fps": 7.48
+          },
+          "predict_default": {
+            "n": 30,
+            "mean_ms": 131.355,
+            "std_ms": 17.852,
+            "min_ms": 116.345,
+            "p50_ms": 124.015,
+            "p90_ms": 152.681,
+            "p95_ms": 170.704,
+            "p99_ms": 181.198,
+            "max_ms": 184.595,
+            "fps": 7.61,
+            "postprocess_p50_ms": 0.0,
+            "detections": 0
+          },
+          "predict_dense": {
+            "n": 30,
+            "mean_ms": 402.315,
+            "std_ms": 27.777,
+            "min_ms": 357.526,
+            "p50_ms": 394.541,
+            "p90_ms": 438.744,
+            "p95_ms": 443.933,
+            "p99_ms": 456.192,
+            "max_ms": 460.077,
+            "fps": 2.49,
+            "postprocess_p50_ms": 264.683,
+            "detections": 100
+          },
+          "predict_dense_boxes": {
+            "n": 30,
+            "mean_ms": 140.945,
+            "std_ms": 14.66,
+            "min_ms": 121.59,
+            "p50_ms": 136.883,
+            "p90_ms": 159.34,
+            "p95_ms": 164.558,
+            "p99_ms": 185.795,
+            "max_ms": 193.076,
+            "fps": 7.09,
+            "postprocess_p50_ms": 7.025,
+            "detections": 100
+          },
+          "e2e_p50_ms": 129.348
+        },
+        {
+          "profile": "supernova",
+          "img_size": 320,
+          "device": "cpu",
+          "preprocess": {
+            "n": 30,
+            "mean_ms": 6.827,
+            "std_ms": 2.993,
+            "min_ms": 4.965,
+            "p50_ms": 6.247,
+            "p90_ms": 8.505,
+            "p95_ms": 13.82,
+            "p99_ms": 17.134,
+            "max_ms": 17.631,
+            "fps": 146.48
+          },
+          "forward": {
+            "n": 30,
+            "mean_ms": 89.921,
+            "std_ms": 9.876,
+            "min_ms": 78.852,
+            "p50_ms": 89.151,
+            "p90_ms": 101.876,
+            "p95_ms": 105.11,
+            "p99_ms": 118.807,
+            "max_ms": 123.72,
+            "fps": 11.12
+          },
+          "predict_default": {
+            "n": 30,
+            "mean_ms": 93.955,
+            "std_ms": 12.955,
+            "min_ms": 77.676,
+            "p50_ms": 92.2,
+            "p90_ms": 107.054,
+            "p95_ms": 117.349,
+            "p99_ms": 135.339,
+            "max_ms": 139.701,
+            "fps": 10.64,
+            "postprocess_p50_ms": 3.049,
+            "detections": 0
+          },
+          "predict_dense": {
+            "n": 30,
+            "mean_ms": 332.24,
+            "std_ms": 32.421,
+            "min_ms": 286.577,
+            "p50_ms": 324.729,
+            "p90_ms": 376.0,
+            "p95_ms": 388.583,
+            "p99_ms": 402.72,
+            "max_ms": 405.293,
+            "fps": 3.01,
+            "postprocess_p50_ms": 235.578,
+            "detections": 100
+          },
+          "predict_dense_boxes": {
+            "n": 30,
+            "mean_ms": 121.008,
+            "std_ms": 12.992,
+            "min_ms": 99.808,
+            "p50_ms": 119.437,
+            "p90_ms": 139.307,
+            "p95_ms": 143.994,
+            "p99_ms": 147.082,
+            "max_ms": 147.648,
+            "fps": 8.26,
+            "postprocess_p50_ms": 30.286,
+            "detections": 100
+          },
+          "e2e_p50_ms": 98.447
+        },
+        {
+          "profile": "supernova",
+          "img_size": 512,
+          "device": "cpu",
+          "preprocess": {
+            "n": 30,
+            "mean_ms": 5.89,
+            "std_ms": 2.003,
+            "min_ms": 5.168,
+            "p50_ms": 5.382,
+            "p90_ms": 6.225,
+            "p95_ms": 6.803,
+            "p99_ms": 13.529,
+            "max_ms": 16.263,
+            "fps": 169.78
+          },
+          "forward": {
+            "n": 30,
+            "mean_ms": 175.915,
+            "std_ms": 20.08,
+            "min_ms": 144.419,
+            "p50_ms": 175.793,
+            "p90_ms": 193.08,
+            "p95_ms": 218.116,
+            "p99_ms": 230.701,
+            "max_ms": 231.127,
+            "fps": 5.68
+          },
+          "predict_default": {
+            "n": 30,
+            "mean_ms": 180.243,
+            "std_ms": 14.031,
+            "min_ms": 158.427,
+            "p50_ms": 178.055,
+            "p90_ms": 201.086,
+            "p95_ms": 208.469,
+            "p99_ms": 211.47,
+            "max_ms": 212.577,
+            "fps": 5.55,
+            "postprocess_p50_ms": 2.262,
+            "detections": 0
+          },
+          "predict_dense": {
+            "n": 30,
+            "mean_ms": 481.246,
+            "std_ms": 41.681,
+            "min_ms": 420.864,
+            "p50_ms": 473.099,
+            "p90_ms": 532.62,
+            "p95_ms": 569.068,
+            "p99_ms": 591.392,
+            "max_ms": 592.365,
+            "fps": 2.08,
+            "postprocess_p50_ms": 297.306,
+            "detections": 100
+          },
+          "predict_dense_boxes": {
+            "n": 30,
+            "mean_ms": 227.551,
+            "std_ms": 31.098,
+            "min_ms": 190.344,
+            "p50_ms": 218.902,
+            "p90_ms": 270.356,
+            "p95_ms": 287.789,
+            "p99_ms": 300.109,
+            "max_ms": 304.289,
+            "fps": 4.39,
+            "postprocess_p50_ms": 43.109,
+            "detections": 100
+          },
+          "e2e_p50_ms": 183.437
+        }
+      ],
+      "status": "ok",
+      "duration_s": 269.4
+    },
+    "throughput": {
+      "description": "Images/second versus batch size (forward pass)",
+      "rows": [
+        {
+          "profile": "firefly",
+          "img_size": 512,
+          "batch": 1,
+          "batch_latency": {
+            "n": 10,
+            "mean_ms": 55.85,
+            "std_ms": 6.677,
+            "min_ms": 43.689,
+            "p50_ms": 56.312,
+            "p90_ms": 63.086,
+            "p95_ms": 64.694,
+            "p99_ms": 65.98,
+            "max_ms": 66.302,
+            "fps": 17.91
+          },
+          "images_per_s": 17.91,
+          "ms_per_image": 55.85
+        },
+        {
+          "profile": "firefly",
+          "img_size": 512,
+          "batch": 2,
+          "batch_latency": {
+            "n": 10,
+            "mean_ms": 72.792,
+            "std_ms": 11.236,
+            "min_ms": 60.28,
+            "p50_ms": 68.269,
+            "p90_ms": 87.369,
+            "p95_ms": 88.38,
+            "p99_ms": 89.188,
+            "max_ms": 89.39,
+            "fps": 13.74
+          },
+          "images_per_s": 27.48,
+          "ms_per_image": 36.396
+        },
+        {
+          "profile": "firefly",
+          "img_size": 512,
+          "batch": 4,
+          "batch_latency": {
+            "n": 10,
+            "mean_ms": 120.85,
+            "std_ms": 19.153,
+            "min_ms": 95.469,
+            "p50_ms": 117.327,
+            "p90_ms": 144.204,
+            "p95_ms": 145.423,
+            "p99_ms": 146.398,
+            "max_ms": 146.641,
+            "fps": 8.27
+          },
+          "images_per_s": 33.1,
+          "ms_per_image": 30.212
+        },
+        {
+          "profile": "firefly",
+          "img_size": 512,
+          "batch": 8,
+          "batch_latency": {
+            "n": 10,
+            "mean_ms": 271.841,
+            "std_ms": 32.812,
+            "min_ms": 227.461,
+            "p50_ms": 265.763,
+            "p90_ms": 310.137,
+            "p95_ms": 320.179,
+            "p99_ms": 328.213,
+            "max_ms": 330.221,
+            "fps": 3.68
+          },
+          "images_per_s": 29.43,
+          "ms_per_image": 33.98
+        },
+        {
+          "profile": "comet",
+          "img_size": 512,
+          "batch": 1,
+          "batch_latency": {
+            "n": 10,
+            "mean_ms": 58.578,
+            "std_ms": 4.646,
+            "min_ms": 52.128,
+            "p50_ms": 59.748,
+            "p90_ms": 64.027,
+            "p95_ms": 64.575,
+            "p99_ms": 65.013,
+            "max_ms": 65.122,
+            "fps": 17.07
+          },
+          "images_per_s": 17.07,
+          "ms_per_image": 58.578
+        },
+        {
+          "profile": "comet",
+          "img_size": 512,
+          "batch": 2,
+          "batch_latency": {
+            "n": 10,
+            "mean_ms": 82.1,
+            "std_ms": 4.319,
+            "min_ms": 72.553,
+            "p50_ms": 83.742,
+            "p90_ms": 85.642,
+            "p95_ms": 85.995,
+            "p99_ms": 86.278,
+            "max_ms": 86.348,
+            "fps": 12.18
+          },
+          "images_per_s": 24.36,
+          "ms_per_image": 41.05
+        },
+        {
+          "profile": "comet",
+          "img_size": 512,
+          "batch": 4,
+          "batch_latency": {
+            "n": 10,
+            "mean_ms": 168.859,
+            "std_ms": 18.838,
+            "min_ms": 140.501,
+            "p50_ms": 169.983,
+            "p90_ms": 187.131,
+            "p95_ms": 194.899,
+            "p99_ms": 201.114,
+            "max_ms": 202.668,
+            "fps": 5.92
+          },
+          "images_per_s": 23.69,
+          "ms_per_image": 42.215
+        },
+        {
+          "profile": "comet",
+          "img_size": 512,
+          "batch": 8,
+          "batch_latency": {
+            "n": 10,
+            "mean_ms": 332.952,
+            "std_ms": 24.494,
+            "min_ms": 310.548,
+            "p50_ms": 326.726,
+            "p90_ms": 360.956,
+            "p95_ms": 375.928,
+            "p99_ms": 387.905,
+            "max_ms": 390.899,
+            "fps": 3.0
+          },
+          "images_per_s": 24.03,
+          "ms_per_image": 41.619
+        },
+        {
+          "profile": "nova",
+          "img_size": 512,
+          "batch": 1,
+          "batch_latency": {
+            "n": 10,
+            "mean_ms": 92.493,
+            "std_ms": 8.516,
+            "min_ms": 80.791,
+            "p50_ms": 91.389,
+            "p90_ms": 105.998,
+            "p95_ms": 106.552,
+            "p99_ms": 106.995,
+            "max_ms": 107.105,
+            "fps": 10.81
+          },
+          "images_per_s": 10.81,
+          "ms_per_image": 92.493
+        },
+        {
+          "profile": "nova",
+          "img_size": 512,
+          "batch": 2,
+          "batch_latency": {
+            "n": 10,
+            "mean_ms": 137.356,
+            "std_ms": 19.919,
+            "min_ms": 110.914,
+            "p50_ms": 133.081,
+            "p90_ms": 161.535,
+            "p95_ms": 163.797,
+            "p99_ms": 165.607,
+            "max_ms": 166.059,
+            "fps": 7.28
+          },
+          "images_per_s": 14.56,
+          "ms_per_image": 68.678
+        },
+        {
+          "profile": "nova",
+          "img_size": 512,
+          "batch": 4,
+          "batch_latency": {
+            "n": 10,
+            "mean_ms": 267.57,
+            "std_ms": 29.16,
+            "min_ms": 232.614,
+            "p50_ms": 257.959,
+            "p90_ms": 297.784,
+            "p95_ms": 316.163,
+            "p99_ms": 330.867,
+            "max_ms": 334.543,
+            "fps": 3.74
+          },
+          "images_per_s": 14.95,
+          "ms_per_image": 66.892
+        },
+        {
+          "profile": "nova",
+          "img_size": 512,
+          "batch": 8,
+          "batch_latency": {
+            "n": 10,
+            "mean_ms": 556.248,
+            "std_ms": 38.235,
+            "min_ms": 526.718,
+            "p50_ms": 542.366,
+            "p90_ms": 615.698,
+            "p95_ms": 626.857,
+            "p99_ms": 635.784,
+            "max_ms": 638.015,
+            "fps": 1.8
+          },
+          "images_per_s": 14.38,
+          "ms_per_image": 69.531
+        },
+        {
+          "profile": "pulsar",
+          "img_size": 512,
+          "batch": 1,
+          "batch_latency": {
+            "n": 10,
+            "mean_ms": 118.839,
+            "std_ms": 10.558,
+            "min_ms": 105.786,
+            "p50_ms": 117.419,
+            "p90_ms": 129.949,
+            "p95_ms": 135.352,
+            "p99_ms": 139.675,
+            "max_ms": 140.756,
+            "fps": 8.41
+          },
+          "images_per_s": 8.41,
+          "ms_per_image": 118.839
+        },
+        {
+          "profile": "pulsar",
+          "img_size": 512,
+          "batch": 2,
+          "batch_latency": {
+            "n": 10,
+            "mean_ms": 196.851,
+            "std_ms": 16.814,
+            "min_ms": 173.958,
+            "p50_ms": 189.728,
+            "p90_ms": 219.348,
+            "p95_ms": 224.599,
+            "p99_ms": 228.799,
+            "max_ms": 229.849,
+            "fps": 5.08
+          },
+          "images_per_s": 10.16,
+          "ms_per_image": 98.425
+        },
+        {
+          "profile": "pulsar",
+          "img_size": 512,
+          "batch": 4,
+          "batch_latency": {
+            "n": 10,
+            "mean_ms": 446.035,
+            "std_ms": 66.043,
+            "min_ms": 360.613,
+            "p50_ms": 416.477,
+            "p90_ms": 521.579,
+            "p95_ms": 537.276,
+            "p99_ms": 549.834,
+            "max_ms": 552.973,
+            "fps": 2.24
+          },
+          "images_per_s": 8.97,
+          "ms_per_image": 111.509
+        },
+        {
+          "profile": "pulsar",
+          "img_size": 512,
+          "batch": 8,
+          "batch_latency": {
+            "n": 10,
+            "mean_ms": 853.805,
+            "std_ms": 48.775,
+            "min_ms": 794.97,
+            "p50_ms": 845.894,
+            "p90_ms": 932.593,
+            "p95_ms": 932.837,
+            "p99_ms": 933.032,
+            "max_ms": 933.081,
+            "fps": 1.17
+          },
+          "images_per_s": 9.37,
+          "ms_per_image": 106.726
+        },
+        {
+          "profile": "quasar",
+          "img_size": 512,
+          "batch": 1,
+          "batch_latency": {
+            "n": 10,
+            "mean_ms": 130.534,
+            "std_ms": 10.124,
+            "min_ms": 113.143,
+            "p50_ms": 131.293,
+            "p90_ms": 140.201,
+            "p95_ms": 142.106,
+            "p99_ms": 143.631,
+            "max_ms": 144.012,
+            "fps": 7.66
+          },
+          "images_per_s": 7.66,
+          "ms_per_image": 130.534
+        },
+        {
+          "profile": "quasar",
+          "img_size": 512,
+          "batch": 2,
+          "batch_latency": {
+            "n": 10,
+            "mean_ms": 194.635,
+            "std_ms": 17.506,
+            "min_ms": 171.45,
+            "p50_ms": 193.76,
+            "p90_ms": 209.961,
+            "p95_ms": 220.777,
+            "p99_ms": 229.43,
+            "max_ms": 231.594,
+            "fps": 5.14
+          },
+          "images_per_s": 10.28,
+          "ms_per_image": 97.317
+        },
+        {
+          "profile": "quasar",
+          "img_size": 512,
+          "batch": 4,
+          "batch_latency": {
+            "n": 10,
+            "mean_ms": 415.199,
+            "std_ms": 44.109,
+            "min_ms": 362.418,
+            "p50_ms": 397.759,
+            "p90_ms": 475.357,
+            "p95_ms": 480.844,
+            "p99_ms": 485.233,
+            "max_ms": 486.331,
+            "fps": 2.41
+          },
+          "images_per_s": 9.63,
+          "ms_per_image": 103.8
+        },
+        {
+          "profile": "quasar",
+          "img_size": 512,
+          "batch": 8,
+          "batch_latency": {
+            "n": 10,
+            "mean_ms": 850.352,
+            "std_ms": 68.358,
+            "min_ms": 781.026,
+            "p50_ms": 822.893,
+            "p90_ms": 939.515,
+            "p95_ms": 966.627,
+            "p99_ms": 988.316,
+            "max_ms": 993.739,
+            "fps": 1.18
+          },
+          "images_per_s": 9.41,
+          "ms_per_image": 106.294
+        },
+        {
+          "profile": "supernova",
+          "img_size": 512,
+          "batch": 1,
+          "batch_latency": {
+            "n": 10,
+            "mean_ms": 167.097,
+            "std_ms": 10.305,
+            "min_ms": 148.05,
+            "p50_ms": 167.613,
+            "p90_ms": 178.46,
+            "p95_ms": 179.543,
+            "p99_ms": 180.409,
+            "max_ms": 180.626,
+            "fps": 5.98
+          },
+          "images_per_s": 5.98,
+          "ms_per_image": 167.097
+        },
+        {
+          "profile": "supernova",
+          "img_size": 512,
+          "batch": 2,
+          "batch_latency": {
+            "n": 10,
+            "mean_ms": 324.417,
+            "std_ms": 22.515,
+            "min_ms": 294.631,
+            "p50_ms": 319.374,
+            "p90_ms": 356.533,
+            "p95_ms": 358.608,
+            "p99_ms": 360.268,
+            "max_ms": 360.683,
+            "fps": 3.08
+          },
+          "images_per_s": 6.16,
+          "ms_per_image": 162.208
+        },
+        {
+          "profile": "supernova",
+          "img_size": 512,
+          "batch": 4,
+          "batch_latency": {
+            "n": 10,
+            "mean_ms": 667.965,
+            "std_ms": 49.529,
+            "min_ms": 587.062,
+            "p50_ms": 667.844,
+            "p90_ms": 703.102,
+            "p95_ms": 740.576,
+            "p99_ms": 770.555,
+            "max_ms": 778.05,
+            "fps": 1.5
+          },
+          "images_per_s": 5.99,
+          "ms_per_image": 166.991
+        },
+        {
+          "profile": "supernova",
+          "img_size": 512,
+          "batch": 8,
+          "batch_latency": {
+            "n": 10,
+            "mean_ms": 1465.082,
+            "std_ms": 89.696,
+            "min_ms": 1357.306,
+            "p50_ms": 1445.563,
+            "p90_ms": 1535.531,
+            "p95_ms": 1603.771,
+            "p99_ms": 1658.364,
+            "max_ms": 1672.012,
+            "fps": 0.68
+          },
+          "images_per_s": 5.46,
+          "ms_per_image": 183.135
+        }
+      ],
+      "status": "ok",
+      "duration_s": 101.9
+    },
+    "memory": {
+      "description": "Peak RAM (CPU, RSS) or VRAM (CUDA, allocated) for inference and a training step, one fresh process per profile",
+      "metric": "process RSS (MB), fresh process per profile",
+      "rows": [
+        {
+          "profile": "firefly",
+          "img_size": 512,
+          "device": "cpu",
+          "process_baseline_mb": 702.8,
+          "model_weights_mb": 5.32,
+          "inference_peak_mb": 900.5,
+          "inference_delta_mb": 155.3,
+          "train_batch": 4,
+          "train_peak_mb": 1470.2,
+          "train_delta_mb": 696.3
+        },
+        {
+          "profile": "comet",
+          "img_size": 512,
+          "device": "cpu",
+          "process_baseline_mb": 702.7,
+          "model_weights_mb": 9.43,
+          "inference_peak_mb": 913.4,
+          "inference_delta_mb": 158.5,
+          "train_batch": 4,
+          "train_peak_mb": 1624.2,
+          "train_delta_mb": 840.6
+        },
+        {
+          "profile": "nova",
+          "img_size": 512,
+          "device": "cpu",
+          "process_baseline_mb": 702.7,
+          "model_weights_mb": 17.93,
+          "inference_peak_mb": 928.9,
+          "inference_delta_mb": 157.9,
+          "train_batch": 4,
+          "train_peak_mb": 1837.2,
+          "train_delta_mb": 1038.0
+        },
+        {
+          "profile": "pulsar",
+          "img_size": 512,
+          "device": "cpu",
+          "process_baseline_mb": 702.6,
+          "model_weights_mb": 34.81,
+          "inference_peak_mb": 952.6,
+          "inference_delta_mb": 158.0,
+          "train_batch": 4,
+          "train_peak_mb": 2114.9,
+          "train_delta_mb": 1302.7
+        },
+        {
+          "profile": "quasar",
+          "img_size": 512,
+          "device": "cpu",
+          "process_baseline_mb": 702.9,
+          "model_weights_mb": 36.66,
+          "inference_peak_mb": 954.3,
+          "inference_delta_mb": 159.8,
+          "train_batch": 4,
+          "train_peak_mb": 2128.1,
+          "train_delta_mb": 1313.6
+        },
+        {
+          "profile": "supernova",
+          "img_size": 512,
+          "device": "cpu",
+          "process_baseline_mb": 702.6,
+          "model_weights_mb": 57.22,
+          "inference_peak_mb": 980.0,
+          "inference_delta_mb": 161.9,
+          "train_batch": 4,
+          "train_peak_mb": 2483.5,
+          "train_delta_mb": 1651.9
+        }
+      ],
+      "status": "ok",
+      "duration_s": 41.0
+    },
+    "training": {
+      "description": "Training step time and images/second (synthetic batch, AdamW)",
+      "optimizer": "AdamW",
+      "rows": [
+        {
+          "profile": "firefly",
+          "img_size": 320,
+          "batch": 4,
+          "device": "cpu",
+          "step": {
+            "n": 10,
+            "mean_ms": 305.871,
+            "std_ms": 14.319,
+            "min_ms": 280.355,
+            "p50_ms": 307.851,
+            "p90_ms": 322.125,
+            "p95_ms": 322.522,
+            "p99_ms": 322.84,
+            "max_ms": 322.919,
+            "fps": 3.27
+          },
+          "images_per_s": 13.08,
+          "loss_finite": true,
+          "final_loss": 4.912
+        },
+        {
+          "profile": "comet",
+          "img_size": 320,
+          "batch": 4,
+          "device": "cpu",
+          "step": {
+            "n": 10,
+            "mean_ms": 382.453,
+            "std_ms": 30.49,
+            "min_ms": 346.467,
+            "p50_ms": 370.074,
+            "p90_ms": 429.038,
+            "p95_ms": 434.331,
+            "p99_ms": 438.565,
+            "max_ms": 439.623,
+            "fps": 2.61
+          },
+          "images_per_s": 10.46,
+          "loss_finite": true,
+          "final_loss": 4.9038
+        },
+        {
+          "profile": "nova",
+          "img_size": 320,
+          "batch": 4,
+          "device": "cpu",
+          "step": {
+            "n": 10,
+            "mean_ms": 585.404,
+            "std_ms": 92.61,
+            "min_ms": 468.768,
+            "p50_ms": 570.357,
+            "p90_ms": 708.141,
+            "p95_ms": 739.052,
+            "p99_ms": 763.78,
+            "max_ms": 769.962,
+            "fps": 1.71
+          },
+          "images_per_s": 6.83,
+          "loss_finite": true,
+          "final_loss": 4.8586
+        },
+        {
+          "profile": "pulsar",
+          "img_size": 320,
+          "batch": 4,
+          "device": "cpu",
+          "step": {
+            "n": 10,
+            "mean_ms": 763.816,
+            "std_ms": 63.554,
+            "min_ms": 673.683,
+            "p50_ms": 748.179,
+            "p90_ms": 851.142,
+            "p95_ms": 866.479,
+            "p99_ms": 878.749,
+            "max_ms": 881.816,
+            "fps": 1.31
+          },
+          "images_per_s": 5.24,
+          "loss_finite": true,
+          "final_loss": 4.8402
+        },
+        {
+          "profile": "quasar",
+          "img_size": 320,
+          "batch": 4,
+          "device": "cpu",
+          "step": {
+            "n": 10,
+            "mean_ms": 707.155,
+            "std_ms": 48.663,
+            "min_ms": 626.519,
+            "p50_ms": 698.815,
+            "p90_ms": 766.932,
+            "p95_ms": 776.505,
+            "p99_ms": 784.164,
+            "max_ms": 786.079,
+            "fps": 1.41
+          },
+          "images_per_s": 5.66,
+          "loss_finite": true,
+          "final_loss": 4.8544
+        },
+        {
+          "profile": "supernova",
+          "img_size": 320,
+          "batch": 4,
+          "device": "cpu",
+          "step": {
+            "n": 10,
+            "mean_ms": 1117.242,
+            "std_ms": 77.774,
+            "min_ms": 981.278,
+            "p50_ms": 1140.91,
+            "p90_ms": 1191.132,
+            "p95_ms": 1197.903,
+            "p99_ms": 1203.319,
+            "max_ms": 1204.674,
+            "fps": 0.9
+          },
+          "images_per_s": 3.58,
+          "loss_finite": true,
+          "final_loss": 4.8535
+        }
+      ],
+      "status": "ok",
+      "duration_s": 47.2
+    },
+    "startup": {
+      "description": "Checkpoint load time, first-request penalty and warm latency",
+      "repeats": 3,
+      "rows": [
+        {
+          "profile": "firefly",
+          "checkpoint_mb": 5.51,
+          "load_ms": {
+            "n": 3,
+            "mean_ms": 95.286,
+            "std_ms": 27.148,
+            "min_ms": 73.012,
+            "p50_ms": 87.319,
+            "p90_ms": 117.884,
+            "p95_ms": 121.705,
+            "p99_ms": 124.761,
+            "max_ms": 125.526,
+            "fps": 10.49
+          },
+          "first_inference_ms": 70.01,
+          "second_inference_ms": 59.69,
+          "warmup_penalty_ms": 10.32
+        },
+        {
+          "profile": "comet",
+          "checkpoint_mb": 9.62,
+          "load_ms": {
+            "n": 3,
+            "mean_ms": 172.017,
+            "std_ms": 118.24,
+            "min_ms": 102.319,
+            "p50_ms": 105.194,
+            "p90_ms": 267.87,
+            "p95_ms": 288.204,
+            "p99_ms": 304.472,
+            "max_ms": 308.539,
+            "fps": 5.81
+          },
+          "first_inference_ms": 94.8,
+          "second_inference_ms": 72.5,
+          "warmup_penalty_ms": 22.3
+        },
+        {
+          "profile": "nova",
+          "checkpoint_mb": 18.14,
+          "load_ms": {
+            "n": 3,
+            "mean_ms": 106.614,
+            "std_ms": 5.853,
+            "min_ms": 100.446,
+            "p50_ms": 107.305,
+            "p90_ms": 111.134,
+            "p95_ms": 111.613,
+            "p99_ms": 111.995,
+            "max_ms": 112.091,
+            "fps": 9.38
+          },
+          "first_inference_ms": 123.68,
+          "second_inference_ms": 101.22,
+          "warmup_penalty_ms": 22.46
+        },
+        {
+          "profile": "pulsar",
+          "checkpoint_mb": 35.08,
+          "load_ms": {
+            "n": 3,
+            "mean_ms": 148.168,
+            "std_ms": 13.363,
+            "min_ms": 136.241,
+            "p50_ms": 145.655,
+            "p90_ms": 159.218,
+            "p95_ms": 160.913,
+            "p99_ms": 162.27,
+            "max_ms": 162.609,
+            "fps": 6.75
+          },
+          "first_inference_ms": 149.91,
+          "second_inference_ms": 159.21,
+          "warmup_penalty_ms": -9.31
+        },
+        {
+          "profile": "quasar",
+          "checkpoint_mb": 36.92,
+          "load_ms": {
+            "n": 3,
+            "mean_ms": 180.663,
+            "std_ms": 86.638,
+            "min_ms": 126.663,
+            "p50_ms": 134.731,
+            "p90_ms": 251.423,
+            "p95_ms": 266.009,
+            "p99_ms": 277.678,
+            "max_ms": 280.596,
+            "fps": 5.54
+          },
+          "first_inference_ms": 142.08,
+          "second_inference_ms": 145.43,
+          "warmup_penalty_ms": -3.35
+        },
+        {
+          "profile": "supernova",
+          "checkpoint_mb": 57.54,
+          "load_ms": {
+            "n": 3,
+            "mean_ms": 176.338,
+            "std_ms": 10.485,
+            "min_ms": 165.897,
+            "p50_ms": 176.25,
+            "p90_ms": 184.744,
+            "p95_ms": 185.805,
+            "p99_ms": 186.655,
+            "max_ms": 186.867,
+            "fps": 5.67
+          },
+          "first_inference_ms": 215.92,
+          "second_inference_ms": 196.93,
+          "warmup_penalty_ms": 18.99
+        }
+      ],
+      "status": "ok",
+      "duration_s": 7.9
+    },
+    "onnx": {
+      "description": "ONNX export, numerical parity and ONNX Runtime vs PyTorch latency",
+      "provider": "CPUExecutionProvider",
+      "onnxruntime": "1.30.0",
+      "rows": [
+        {
+          "profile": "firefly",
+          "img_size": 512,
+          "export_s": 0.63,
+          "onnx_mb": 5.36,
+          "max_abs_diff": 6.705522537231445e-08,
+          "pytorch_cpu": {
+            "n": 30,
+            "mean_ms": 55.081,
+            "std_ms": 6.239,
+            "min_ms": 45.098,
+            "p50_ms": 55.114,
+            "p90_ms": 61.305,
+            "p95_ms": 66.838,
+            "p99_ms": 70.002,
+            "max_ms": 71.02,
+            "fps": 18.15
+          },
+          "onnxruntime_cpu": {
+            "n": 30,
+            "mean_ms": 17.853,
+            "std_ms": 1.68,
+            "min_ms": 15.677,
+            "p50_ms": 17.479,
+            "p90_ms": 19.976,
+            "p95_ms": 21.18,
+            "p99_ms": 22.411,
+            "max_ms": 22.595,
+            "fps": 56.01
+          },
+          "speedup_vs_pytorch": 3.15
+        },
+        {
+          "profile": "comet",
+          "img_size": 512,
+          "export_s": 0.61,
+          "onnx_mb": 9.46,
+          "max_abs_diff": 6.705522537231445e-08,
+          "pytorch_cpu": {
+            "n": 30,
+            "mean_ms": 62.785,
+            "std_ms": 5.819,
+            "min_ms": 55.617,
+            "p50_ms": 60.707,
+            "p90_ms": 72.221,
+            "p95_ms": 73.073,
+            "p99_ms": 74.921,
+            "max_ms": 75.428,
+            "fps": 15.93
+          },
+          "onnxruntime_cpu": {
+            "n": 30,
+            "mean_ms": 25.09,
+            "std_ms": 4.729,
+            "min_ms": 20.204,
+            "p50_ms": 23.188,
+            "p90_ms": 31.475,
+            "p95_ms": 33.263,
+            "p99_ms": 36.522,
+            "max_ms": 37.849,
+            "fps": 39.86
+          },
+          "speedup_vs_pytorch": 2.62
+        },
+        {
+          "profile": "nova",
+          "img_size": 512,
+          "export_s": 0.68,
+          "onnx_mb": 17.95,
+          "max_abs_diff": 6.705522537231445e-08,
+          "pytorch_cpu": {
+            "n": 30,
+            "mean_ms": 88.21,
+            "std_ms": 9.713,
+            "min_ms": 78.34,
+            "p50_ms": 84.694,
+            "p90_ms": 99.449,
+            "p95_ms": 109.852,
+            "p99_ms": 115.597,
+            "max_ms": 117.609,
+            "fps": 11.34
+          },
+          "onnxruntime_cpu": {
+            "n": 30,
+            "mean_ms": 41.075,
+            "std_ms": 2.655,
+            "min_ms": 37.929,
+            "p50_ms": 39.933,
+            "p90_ms": 44.028,
+            "p95_ms": 46.128,
+            "p99_ms": 48.18,
+            "max_ms": 48.629,
+            "fps": 24.35
+          },
+          "speedup_vs_pytorch": 2.12
+        },
+        {
+          "profile": "pulsar",
+          "img_size": 512,
+          "export_s": 0.86,
+          "onnx_mb": 34.81,
+          "max_abs_diff": 6.705522537231445e-08,
+          "pytorch_cpu": {
+            "n": 30,
+            "mean_ms": 140.895,
+            "std_ms": 22.96,
+            "min_ms": 107.104,
+            "p50_ms": 137.325,
+            "p90_ms": 169.883,
+            "p95_ms": 179.207,
+            "p99_ms": 186.07,
+            "max_ms": 188.333,
+            "fps": 7.1
+          },
+          "onnxruntime_cpu": {
+            "n": 30,
+            "mean_ms": 78.443,
+            "std_ms": 14.242,
+            "min_ms": 62.37,
+            "p50_ms": 75.381,
+            "p90_ms": 104.385,
+            "p95_ms": 107.388,
+            "p99_ms": 110.428,
+            "max_ms": 110.992,
+            "fps": 12.75
+          },
+          "speedup_vs_pytorch": 1.82
+        },
+        {
+          "profile": "quasar",
+          "img_size": 512,
+          "export_s": 0.98,
+          "onnx_mb": 36.65,
+          "max_abs_diff": 6.705522537231445e-08,
+          "pytorch_cpu": {
+            "n": 30,
+            "mean_ms": 131.01,
+            "std_ms": 13.329,
+            "min_ms": 109.373,
+            "p50_ms": 130.916,
+            "p90_ms": 148.75,
+            "p95_ms": 155.814,
+            "p99_ms": 161.702,
+            "max_ms": 162.427,
+            "fps": 7.63
+          },
+          "onnxruntime_cpu": {
+            "n": 30,
+            "mean_ms": 77.606,
+            "std_ms": 12.672,
+            "min_ms": 61.768,
+            "p50_ms": 73.646,
+            "p90_ms": 92.51,
+            "p95_ms": 97.555,
+            "p99_ms": 115.932,
+            "max_ms": 122.829,
+            "fps": 12.89
+          },
+          "speedup_vs_pytorch": 1.78
+        },
+        {
+          "profile": "supernova",
+          "img_size": 512,
+          "export_s": 1.35,
+          "onnx_mb": 57.2,
+          "max_abs_diff": 4.76837158203125e-07,
+          "pytorch_cpu": {
+            "n": 30,
+            "mean_ms": 189.792,
+            "std_ms": 24.065,
+            "min_ms": 158.462,
+            "p50_ms": 186.63,
+            "p90_ms": 226.728,
+            "p95_ms": 229.482,
+            "p99_ms": 243.436,
+            "max_ms": 248.382,
+            "fps": 5.27
+          },
+          "onnxruntime_cpu": {
+            "n": 30,
+            "mean_ms": 123.577,
+            "std_ms": 13.604,
+            "min_ms": 105.743,
+            "p50_ms": 118.41,
+            "p90_ms": 141.964,
+            "p95_ms": 143.584,
+            "p99_ms": 160.915,
+            "max_ms": 167.58,
+            "fps": 8.09
+          },
+          "speedup_vs_pytorch": 1.58
+        }
+      ],
+      "status": "ok",
+      "duration_s": 45.4
+    },
+    "api": {
+      "description": "Requests/second and latency percentiles of /v1/predict under concurrent clients",
+      "profile": "firefly",
+      "img_size": 512,
+      "device": "cpu",
+      "payload": "synthetic 1280x720 JPEG",
+      "server_max_concurrency": 1,
+      "unauthenticated_status": 401,
+      "rows": [
+        {
+          "concurrency": 1,
+          "requests": 80,
+          "errors": 0,
+          "rps": 8.91,
+          "latency": {
+            "n": 80,
+            "mean_ms": 112.172,
+            "std_ms": 15.656,
+            "min_ms": 87.95,
+            "p50_ms": 110.16,
+            "p90_ms": 129.789,
+            "p95_ms": 132.485,
+            "p99_ms": 159.748,
+            "max_ms": 188.696,
+            "fps": 8.91
+          }
+        },
+        {
+          "concurrency": 2,
+          "requests": 80,
+          "errors": 0,
+          "rps": 9.88,
+          "latency": {
+            "n": 80,
+            "mean_ms": 201.181,
+            "std_ms": 21.281,
+            "min_ms": 111.613,
+            "p50_ms": 200.732,
+            "p90_ms": 225.459,
+            "p95_ms": 233.806,
+            "p99_ms": 259.303,
+            "max_ms": 272.906,
+            "fps": 4.97
+          }
+        },
+        {
+          "concurrency": 4,
+          "requests": 80,
+          "errors": 0,
+          "rps": 9.55,
+          "latency": {
+            "n": 80,
+            "mean_ms": 410.935,
+            "std_ms": 45.021,
+            "min_ms": 152.97,
+            "p50_ms": 411.033,
+            "p90_ms": 459.525,
+            "p95_ms": 467.653,
+            "p99_ms": 473.582,
+            "max_ms": 482.477,
+            "fps": 2.43
+          }
+        },
+        {
+          "concurrency": 8,
+          "requests": 80,
+          "errors": 0,
+          "rps": 9.47,
+          "latency": {
+            "n": 80,
+            "mean_ms": 810.476,
+            "std_ms": 141.361,
+            "min_ms": 160.256,
+            "p50_ms": 829.23,
+            "p90_ms": 938.427,
+            "p95_ms": 966.088,
+            "p99_ms": 991.225,
+            "max_ms": 994.099,
+            "fps": 1.23
+          }
+        },
+        {
+          "concurrency": 16,
+          "requests": 80,
+          "errors": 0,
+          "rps": 10.02,
+          "latency": {
+            "n": 80,
+            "mean_ms": 1454.399,
+            "std_ms": 308.873,
+            "min_ms": 226.884,
+            "p50_ms": 1538.972,
+            "p90_ms": 1635.716,
+            "p95_ms": 1645.178,
+            "p99_ms": 1710.18,
+            "max_ms": 1788.536,
+            "fps": 0.69
+          }
+        }
+      ],
+      "status": "ok",
+      "duration_s": 44.0
+    },
+    "e2e": {
+      "description": "Train + validate on a seeded synthetic dataset (pipeline correctness and learning signal)",
+      "profile": "firefly",
+      "device": "cpu",
+      "classes": [
+        "rectangle",
+        "ellipse",
+        "triangle"
+      ],
+      "train_images": 192,
+      "val_images": 48,
+      "img_size": 256,
+      "epochs": 30,
+      "train_wall_s": 317.7,
+      "train_images_per_s": 18.13,
+      "metrics": {
+        "validation_wall_s": 4.94,
+        "num_images": 48,
+        "precision": 0.95,
+        "recall": 1.0,
+        "f1": 0.9744,
+        "map50": 1.0,
+        "ap50_95": 0.8678,
+        "mean_box_iou": 0.9134,
+        "mean_mask_iou": 0.7569,
+        "per_class": [
+          {
+            "class": "rectangle",
+            "ap50": 1.0,
+            "precision": 0.9302,
+            "recall": 1.0
+          },
+          {
+            "class": "ellipse",
+            "ap50": 1.0,
+            "precision": 0.9444,
+            "recall": 1.0
+          },
+          {
+            "class": "triangle",
+            "ap50": 1.0,
+            "precision": 0.9756,
+            "recall": 1.0
+          }
+        ]
+      },
+      "checkpoint": "/home/user/detektor/runs/benchmarks/20261001-180743_baseline-cpu/e2e/run/chimera_best.pt",
+      "status": "ok",
+      "duration_s": 323.4
+    },
+    "robustness": {
+      "description": "mAP50 retention under Gaussian noise, blur, brightness/contrast, JPEG and downscaling",
+      "weights": "/home/user/detektor/runs/benchmarks/20261001-180743_baseline-cpu/e2e/run/chimera_best.pt",
+      "images": 48,
+      "img_size": 256,
+      "note": "mAP50 here is a per-class AP50 mean computed in-process (compute_per_class_ap), not COCO-style.",
+      "rows": [
+        {
+          "perturbation": "clean",
+          "map50": 1.0,
+          "retention": 1.0,
+          "mean_detections": 3.0
+        },
+        {
+          "perturbation": "gaussian_noise_s10",
+          "map50": 1.0,
+          "retention": 1.0,
+          "mean_detections": 2.94
+        },
+        {
+          "perturbation": "gaussian_noise_s25",
+          "map50": 1.0,
+          "retention": 1.0,
+          "mean_detections": 2.94
+        },
+        {
+          "perturbation": "blur_k5",
+          "map50": 1.0,
+          "retention": 1.0,
+          "mean_detections": 2.94
+        },
+        {
+          "perturbation": "blur_k9",
+          "map50": 1.0,
+          "retention": 1.0,
+          "mean_detections": 2.98
+        },
+        {
+          "perturbation": "brightness_x0.6",
+          "map50": 0.9998,
+          "retention": 0.9998,
+          "mean_detections": 4.0
+        },
+        {
+          "perturbation": "brightness_x1.4",
+          "map50": 1.0,
+          "retention": 1.0,
+          "mean_detections": 2.96
+        },
+        {
+          "perturbation": "contrast_x0.5",
+          "map50": 0.9998,
+          "retention": 0.9998,
+          "mean_detections": 4.1
+        },
+        {
+          "perturbation": "jpeg_q20",
+          "map50": 1.0,
+          "retention": 1.0,
+          "mean_detections": 2.96
+        },
+        {
+          "perturbation": "downscale_x0.5",
+          "map50": 1.0,
+          "retention": 1.0,
+          "mean_detections": 2.94
+        }
+      ],
+      "status": "ok",
+      "duration_s": 13.0
+    },
+    "accuracy": {
+      "description": "Precision/recall/mAP50/mAP50-95/IoU on a dataset split via validate.py (needs --weights and --data-yaml)",
+      "skipped": "pass --weights and --data-yaml to enable the accuracy suite",
+      "rows": [],
+      "status": "skipped",
+      "duration_s": 0.0
+    }
+  }
+}

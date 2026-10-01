@@ -57,5 +57,39 @@ class ExportSmokeTests(unittest.TestCase):
             self.assertTrue(output_path.exists())
 
 
+    def test_export_matches_pytorch_for_trained_style_weights(self) -> None:
+        """Regression: exporting through a train-mode wrapper baked BatchNorm batch statistics into the graph.
+
+        Randomly initialised BatchNorm layers (mean 0 / var 1) hide the problem, so give them
+        non-trivial running statistics like a trained model has.
+        """
+        try:
+            import onnx  # noqa: F401
+            import onnxruntime  # noqa: F401
+        except Exception:
+            self.skipTest("onnx/onnxruntime not installed")
+
+        from export import export_onnx
+        from models.factory import build_model_from_model_config, resolve_model_config
+
+        torch.manual_seed(0)
+        cfg = resolve_model_config({"profile": "firefly"}, num_classes=2)
+        model = build_model_from_model_config(cfg, num_classes=2)
+        for module in model.modules():
+            if isinstance(module, torch.nn.BatchNorm2d):
+                module.running_mean.normal_(0.0, 0.5)
+                module.running_var.uniform_(0.5, 2.0)
+        with tempfile.TemporaryDirectory() as tmp:
+            ckpt = Path(tmp) / "m.pt"
+            torch.save({"model_state": model.state_dict(), "model_config": cfg,
+                        "config": {"train": {"img_size": 96}, "data": {"num_classes": 2}, "model": cfg}}, ckpt)
+            result = export_onnx(None, str(ckpt), str(Path(tmp) / "m.onnx"), check_parity=True, opset=13)
+
+        self.assertEqual(result["image_size"], 96)  # defaults to the checkpoint's training size
+        self.assertTrue(result["parity_ok"], result["parity"])
+        for item in result["parity"]["comparisons"]:
+            self.assertLess(item["max_abs_diff"], 1e-3, item)
+
+
 if __name__ == "__main__":
     unittest.main()

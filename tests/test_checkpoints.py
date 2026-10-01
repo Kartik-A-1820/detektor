@@ -90,3 +90,37 @@ class TestCheckpointMetadataPrecedence(unittest.TestCase):
         self.assertEqual(rebuilt.proto_k, 16)
         load_model_weights(rebuilt, checkpoint, strict=True)
         self.assertTrue(torch.equal(rebuilt.state_dict()["proto_head.pred.weight"], source.state_dict()["proto_head.pred.weight"]))
+
+
+class TestTrainImageSize(unittest.TestCase):
+    """Serving defaults to the resolution a checkpoint was trained at."""
+
+    def test_reads_size_from_embedded_config(self) -> None:
+        from models.factory import checkpoint_train_img_size
+
+        self.assertEqual(checkpoint_train_img_size({"config": {"train": {"img_size": 256}}}), 256)
+        self.assertEqual(checkpoint_train_img_size({"config": {"train": {"img_size": "384"}}}), 384)
+
+    def test_missing_or_invalid_metadata_yields_none(self) -> None:
+        from models.factory import checkpoint_train_img_size
+
+        for value in ({}, {"config": {}}, {"config": {"train": {}}}, {"config": {"train": {"img_size": 0}}},
+                      {"config": {"train": {"img_size": "x"}}}, {"model_state": {}}, None, "oops"):
+            self.assertIsNone(checkpoint_train_img_size(value), value)
+
+    def test_load_model_records_train_size(self) -> None:
+        import tempfile
+
+        from api.utils import load_model
+        from models.factory import build_model_from_model_config, resolve_model_config
+
+        cfg = resolve_model_config({"profile": "firefly"}, num_classes=2)
+        model = build_model_from_model_config(cfg, num_classes=2)
+        with tempfile.TemporaryDirectory() as tmp:
+            with_cfg = Path(tmp) / "with.pt"
+            torch.save({"model_state": model.state_dict(), "model_config": cfg,
+                        "config": {"train": {"img_size": 288}, "data": {"num_classes": 2}, "model": cfg}}, with_cfg)
+            bare = Path(tmp) / "bare.pt"
+            torch.save({"model_state": model.state_dict(), "model_config": cfg}, bare)
+            self.assertEqual(load_model(str(with_cfg), device_name="cpu")[0].train_img_size, 288)
+            self.assertIsNone(load_model(str(bare), device_name="cpu")[0].train_img_size)

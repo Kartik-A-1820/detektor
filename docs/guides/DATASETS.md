@@ -89,7 +89,7 @@ python train.py --config configs/chimera_s_512.yaml --data-yaml F:/data/data.yam
 - `--source`: Image file or folder (required)
 - `--data-yaml`: Dataset YAML for class names (optional)
 - `--num-classes`: Override auto-detection (optional)
-- `--img-size`: Input size (default: 512)
+- `--img-size`: Input size (default: the size the checkpoint was trained at, else 512)
 - `--conf-thresh`: Confidence threshold (default: 0.25)
 - `--iou-thresh`: NMS IoU threshold (default: 0.6)
 - `--max-det`: Max detections per image (default: 100)

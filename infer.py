@@ -9,7 +9,12 @@ import torch
 import yaml
 from torch import Tensor
 
-from models.factory import build_model_from_checkpoint, infer_num_classes_from_checkpoint, load_model_weights
+from models.factory import (
+    build_model_from_checkpoint,
+    checkpoint_train_img_size,
+    infer_num_classes_from_checkpoint,
+    load_model_weights,
+)
 from utils.visualize import draw_boxes
 
 
@@ -62,7 +67,7 @@ def infer(
     weights: str,
     source: str,
     num_classes: Optional[int] = None,
-    image_size: int = 512,
+    image_size: Optional[int] = None,
     conf_thresh: float = 0.25,
     iou_thresh: float = 0.6,
     topk_pre_nms: int = 300,
@@ -83,6 +88,7 @@ def infer(
     model = build_model_from_checkpoint(checkpoint, num_classes=num_classes).to(device)
     load_model_weights(model, checkpoint, strict=True)
     model.eval()
+    image_size = image_size or checkpoint_train_img_size(checkpoint) or 512
 
     image_tensor, original_rgb, original_size = _prepare_image(source, image_size=image_size)
     image_tensor = image_tensor.to(device)
@@ -131,7 +137,7 @@ def infer_folder(
     source_dir: str,
     output_dir: str,
     num_classes: Optional[int] = None,
-    image_size: int = 512,
+    image_size: Optional[int] = None,
     conf_thresh: float = 0.25,
     iou_thresh: float = 0.6,
     topk_pre_nms: int = 300,
@@ -165,6 +171,7 @@ def infer_folder(
     model = build_model_from_checkpoint(checkpoint, num_classes=num_classes).to(device)
     load_model_weights(model, checkpoint, strict=True)
     model.eval()
+    image_size = image_size or checkpoint_train_img_size(checkpoint) or 512
 
     for idx, image_file in enumerate(image_files, start=1):
         print(f"\n[{idx}/{len(image_files)}] processing: {image_file.name}")
@@ -217,7 +224,7 @@ if __name__ == "__main__":
     parser.add_argument("--source", type=str, required=True, help="Path to input image or folder")
     parser.add_argument("--data-yaml", type=str, default="", help="Optional dataset YAML to load class names")
     parser.add_argument("--num-classes", type=int, default=None, help="Number of classes (auto-detected if not provided)")
-    parser.add_argument("--img-size", type=int, default=512, help="Square model input size")
+    parser.add_argument("--img-size", type=int, default=None, help="Square model input size (default: the size the checkpoint was trained at, else 512)")
     parser.add_argument("--conf-thresh", type=float, default=0.25, help="Confidence threshold used before NMS")
     parser.add_argument("--iou-thresh", type=float, default=0.6, help="IoU threshold used by NMS")
     parser.add_argument("--topk-pre-nms", type=int, default=300, help="Maximum candidates kept before NMS")

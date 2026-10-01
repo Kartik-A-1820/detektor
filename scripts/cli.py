@@ -23,7 +23,7 @@ def main() -> None:
     parser.add_argument("--include-masks", action="store_true", help="Include base64-encoded masks in the printed response payload")
     parser.add_argument("--num-classes", type=int, default=1, help="Number of classes expected by the checkpoint")
     parser.add_argument("--proto-k", type=int, default=24, help="Number of prototype channels expected by the checkpoint")
-    parser.add_argument("--img-size", type=int, default=512, help="Square model input size used for preprocessing")
+    parser.add_argument("--img-size", type=int, default=None, help="Square model input size (default: the size the checkpoint was trained at, else 512)")
     args = parser.parse_args()
 
     model, device = load_model(
@@ -34,7 +34,7 @@ def main() -> None:
     )
 
     image_bytes = Path(args.source).read_bytes()
-    image_tensor, original_rgb, original_size = preprocess_image_bytes(image_bytes, image_size=args.img_size)
+    image_tensor, original_rgb, original_size = preprocess_image_bytes(image_bytes, image_size=args.img_size or getattr(model, "train_img_size", None) or 512)
     image_tensor = image_tensor.to(device)
 
     prediction = model.predict(

@@ -106,7 +106,7 @@ Every CLI flag has an `DETEKTOR_*` env var override so you can run via `uvicorn`
 | `--device` | `DETEKTOR_DEVICE` | `auto` |
 | `--num-classes` | `DETEKTOR_NUM_CLASSES` | auto-detect |
 | `--proto-k` | `DETEKTOR_PROTO_K` | `24` |
-| `--img-size` | `DETEKTOR_IMG_SIZE` | `512` |
+| `--img-size` | `DETEKTOR_IMG_SIZE` | training size of the checkpoint (else `512`) |
 | `--conf-thresh` | `DETEKTOR_CONF_THRESH` | `0.25` |
 | `--iou-thresh` | `DETEKTOR_IOU_THRESH` | `0.6` |
 | `--max-det` | `DETEKTOR_MAX_DET` | `100` |

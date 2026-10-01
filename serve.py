@@ -48,6 +48,7 @@ LOGGER = logging.getLogger("detektor.serve")
 
 # API version
 API_VERSION = API_PACKAGE_VERSION
+DEFAULT_IMAGE_SIZE = 512
 
 
 @dataclass
@@ -64,7 +65,7 @@ class ServiceConfig:
     include_masks_default: bool = False
     num_classes: Optional[int] = None
     proto_k: int = 24
-    image_size: int = 512
+    image_size: Optional[int] = None  # None -> the size the checkpoint was trained at (fallback 512)
     max_upload_size_mb: int = 10
     max_batch_size: int = 16
     enable_warmup: bool = True
@@ -114,10 +115,13 @@ def _load_service(
         proto_k=config.proto_k,
         device_name=config.device,
     )
+    image_size = config.image_size or getattr(model, "train_img_size", None) or DEFAULT_IMAGE_SIZE
+    LOGGER.info("Serving at %dx%d input (%s)", image_size, image_size,
+                "configured" if config.image_size else "checkpoint training size" if getattr(model, "train_img_size", None) else "default")
     inference_service = InferenceService(
         model=model,
         device=device,
-        image_size=config.image_size,
+        image_size=image_size,
         default_conf_thresh=config.conf_thresh,
         default_iou_thresh=config.iou_thresh,
         default_max_det=config.max_det,
@@ -551,8 +555,8 @@ def main() -> None:
     parser.add_argument(
         "--img-size",
         type=int,
-        default=int(os.getenv("DETEKTOR_IMG_SIZE", "512")),
-        help="Square model input size (env: DETEKTOR_IMG_SIZE)",
+        default=int(os.getenv("DETEKTOR_IMG_SIZE")) if os.getenv("DETEKTOR_IMG_SIZE") else None,
+        help="Square model input size (default: the size the checkpoint was trained at, else 512) (env: DETEKTOR_IMG_SIZE)",
     )
 
     # Inference defaults

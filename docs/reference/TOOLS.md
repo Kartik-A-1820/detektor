@@ -129,7 +129,7 @@ python infer.py --weights runs/chimera/chimera_best.pt --source image.jpg
 - `--source PATH` (required): Image file or folder path
 - `--data-yaml PATH`: Dataset YAML for class names (optional)
 - `--num-classes INT`: Override auto-detected number of classes
-- `--img-size INT`: Input image size (default: 512)
+- `--img-size INT`: Input image size (default: the size the checkpoint was trained at, else 512)
 - `--conf-thresh FLOAT`: Confidence threshold (default: 0.25)
 - `--iou-thresh FLOAT`: NMS IoU threshold (default: 0.6)
 - `--max-det INT`: Maximum detections per image (default: 100)
@@ -181,7 +181,7 @@ python serve.py --weights runs/chimera/chimera_best.pt --ui          # + web con
 - `--weights PATH` (required): checkpoint; sibling `chimera_best.pt` / `chimera_last.pt` are switchable at runtime
 - `--device NAME`: `auto` (default), `cpu` or `cuda`
 - `--host IP` / `--port INT`: bind address (default `127.0.0.1:8000`)
-- `--img-size INT`: network input size (default 512)
+- `--img-size INT`: network input size (default: the size the checkpoint was trained at, else 512)
 - `--conf-thresh FLOAT` / `--iou-thresh FLOAT` / `--max-det INT`: default inference thresholds (0.25 / 0.6 / 100)
 - `--max-upload-size-mb INT` (10), `--max-batch-size INT` (16), `--max-concurrency INT` (1)
 - `--api-key KEY`: require `X-API-Key` / Bearer auth on inference, runtime and metrics endpoints
@@ -430,37 +430,32 @@ python check_dataset.py --data-yaml F:/data/data.yaml || exit 1
 
 ### `export.py`
 
-Export trained model to ONNX format.
+Export a trained checkpoint to ONNX (tensor-only graph: class/box/objectness/mask-coefficient maps + prototypes;
+decoding, NMS and mask assembly stay outside the graph — see [ARCHITECTURE](../ARCHITECTURE.md)).
 
 **Basic Usage:**
 ```bash
-python export.py \
-  --config configs/chimera_s_512.yaml \
-  --weights runs/chimera/chimera_best.pt \
-  --output exports/chimera.onnx
+python export.py --weights runs/chimera/chimera_best.pt --output exports/chimera.onnx --check-parity
 ```
 
+The architecture, class count and input size are read from the checkpoint, so **any profile exports without a
+matching config file**.
+
 **Arguments:**
-- `--config PATH` (required): Path to training config YAML
-- `--weights PATH` (required): Path to model checkpoint
-- `--output PATH`: Output ONNX file path (default: `exports/model.onnx`)
-- `--img-size INT`: Input image size (default: 512)
-- `--opset INT`: ONNX opset version (default: 12)
+- `--weights PATH`: model checkpoint (default: `runs/chimera/chimera_last.pt`)
+- `--output PATH`: output ONNX file (default: `exports/chimera_odis.onnx`)
+- `--img-size INT`: export input size (default: the size the checkpoint was trained at, else 512)
+- `--device cpu|cuda`: device used while tracing (default: `cpu`)
+- `--opset INT`: ONNX opset version (default: 13)
+- `--dynamic-batch`: dynamic batch axis
+- `--check-parity`: compare PyTorch and ONNX Runtime outputs; exits with status 2 if they differ beyond tolerance
+- `--config PATH`: optional; only supplies the export size for legacy checkpoints that do not record it
 
 **Examples:**
 ```bash
-# Export to ONNX
-python export.py \
-  --config configs/chimera_s_512.yaml \
-  --weights runs/chimera/chimera_best.pt \
-  --output exports/chimera.onnx
-
-# Custom image size
-python export.py \
-  --config configs/chimera_s_512.yaml \
-  --weights runs/chimera/chimera_best.pt \
-  --output exports/chimera_640.onnx \
-  --img-size 640
+python export.py --weights runs/chimera/chimera_best.pt --output exports/chimera.onnx --check-parity
+python export.py --weights runs/chimera/chimera_best.pt --output exports/chimera_640.onnx --img-size 640 --dynamic-batch
+python -m scripts.export_onnx --weights runs/chimera/chimera_best.pt     # compatibility alias
 ```
 
 ---

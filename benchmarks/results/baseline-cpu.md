@@ -1,22 +1,6 @@
-# Benchmarks
+# Detektor benchmark report
 
-Detektor ships a benchmark framework (`benchmarks/`) covering speed, memory, size, quality, robustness and serving
-capacity. Everything is one CLI, writes machine-readable JSON plus a Markdown report, and can diff two runs to catch
-regressions.
-
-```bash
-python -m benchmarks list                                   # suites + profiles
-python -m benchmarks run --suites fast --profiles firefly,comet,nova
-python -m benchmarks run --suites all --profiles all --tag full
-python -m benchmarks report runs/benchmarks/<run>/results.json -o report.md
-python -m benchmarks compare base/results.json new/results.json --threshold 15 --fail-on-regression
-```
-
-## Published baseline (CPU)
-
-Produced by `python -m benchmarks run --suites all --profiles all` — see [Reproducing the published baseline](#reproducing-the-published-baseline). Raw data: [`benchmarks/results/baseline-cpu.json`](../benchmarks/results/baseline-cpu.json).
-
-### Environment
+## Environment
 
 | Key | Value |
 |---|---|
@@ -33,7 +17,7 @@ Produced by `python -m benchmarks run --suites all --profiles all` — see [Repr
 | onnxruntime | 1.30.0 |
 | device | cpu |
 
-### Configuration
+## Configuration
 
 ```json
 {
@@ -77,7 +61,7 @@ Produced by `python -m benchmarks run --suites all --profiles all` — see [Repr
 }
 ```
 
-### Model complexity
+## Model complexity
 
 _Parameters, GFLOPs and model size per architecture profile and input size_ — ran in 3.0 s
 
@@ -96,7 +80,7 @@ _Parameters, GFLOPs and model size per architecture profile and input size_ — 
 | supernova | 320 | 15.00 | 16.72 | 57.22 | 28.61 |
 | supernova | 512 | 15.00 | 42.80 | 57.22 | 28.61 |
 
-### Inference latency
+## Inference latency
 
 _Batch-1 latency with preprocess / forward / postprocess breakdown (p50/p95/p99)_ — ran in 269.4 s
 
@@ -117,7 +101,7 @@ _Batch-1 latency with preprocess / forward / postprocess breakdown (p50/p95/p99)
 
 _All latencies in ms, batch 1, 1280×720 source image. “Dense” lowers the confidence threshold to 0.001 so top‑k, NMS and (for the masks column) full‑resolution mask composition run at their worst‑case workload — 100 detections; a randomly initialised model emits no confident detections, so the default column shows the idle case. The API skips mask computation unless `include_masks=true`._
 
-### Batch throughput
+## Batch throughput
 
 _Images/second versus batch size (forward pass)_ — ran in 101.9 s
 
@@ -148,7 +132,7 @@ _Images/second versus batch size (forward pass)_ — ran in 101.9 s
 | supernova | 512 | 4 | 667.97 | 166.99 | 5.99 |
 | supernova | 512 | 8 | 1,465.08 | 183.13 | 5.46 |
 
-### Memory footprint
+## Memory footprint
 
 _Peak RAM (CPU, RSS) or VRAM (CUDA, allocated) for inference and a training step, one fresh process per profile_ — ran in 41.0 s
 
@@ -163,7 +147,7 @@ _Peak RAM (CPU, RSS) or VRAM (CUDA, allocated) for inference and a training step
 
 _Metric: process RSS (MB), fresh process per profile. “Peak” includes the interpreter and PyTorch libraries (~703 MB); “Δ” is the increase over the level just before the measured work._
 
-### Training throughput
+## Training throughput
 
 _Training step time and images/second (synthetic batch, AdamW)_ — ran in 47.2 s
 
@@ -176,7 +160,7 @@ _Training step time and images/second (synthetic batch, AdamW)_ — ran in 47.2 
 | quasar | 320 | 4 | 698.82 | 776.50 | 5.66 | True |
 | supernova | 320 | 4 | 1,140.91 | 1,197.90 | 3.58 | True |
 
-### Cold start
+## Cold start
 
 _Checkpoint load time, first-request penalty and warm latency_ — ran in 7.9 s
 
@@ -189,7 +173,7 @@ _Checkpoint load time, first-request penalty and warm latency_ — ran in 7.9 s
 | quasar | 36.92 | 180.66 | 142.08 | 145.43 | -3.35 |
 | supernova | 57.54 | 176.34 | 215.92 | 196.93 | 18.99 |
 
-### ONNX Runtime vs PyTorch
+## ONNX Runtime vs PyTorch
 
 _ONNX export, numerical parity and ONNX Runtime vs PyTorch latency_ — ran in 45.4 s
 
@@ -202,7 +186,7 @@ _ONNX export, numerical parity and ONNX Runtime vs PyTorch latency_ — ran in 4
 | quasar | 512 | 0.98 | 36.65 | 6.7e-08 | 130.92 | 73.65 | 1.78 |
 | supernova | 512 | 1.35 | 57.20 | 4.8e-07 | 186.63 | 118.41 | 1.58 |
 
-### HTTP API load test
+## HTTP API load test
 
 _Requests/second and latency percentiles of /v1/predict under concurrent clients_ — ran in 44.0 s
 
@@ -216,7 +200,7 @@ Profile `firefly`, input 512px, device `cpu`, payload synthetic 1280x720 JPEG, s
 | 8 | 80 | 0 | 9.47 | 829.23 | 966.09 | 991.23 |
 | 16 | 80 | 0 | 10.02 | 1,538.97 | 1,645.18 | 1,710.18 |
 
-### End-to-end quality (synthetic data)
+## End-to-end quality (synthetic data)
 
 _Train + validate on a seeded synthetic dataset (pipeline correctness and learning signal)_ — ran in 323.4 s
 
@@ -226,7 +210,7 @@ Profile `firefly`, 192 train / 48 val synthetic images at 256px, 30 epochs on `c
 |---|---|---|---|---|---|---|---|
 | 0.95 | 1.00 | 0.9744 | 1.00 | 0.8678 | 0.9134 | 0.7569 | 48 |
 
-### Robustness to corruptions
+## Robustness to corruptions
 
 _mAP50 retention under Gaussian noise, blur, brightness/contrast, JPEG and downscaling_ — ran in 13.0 s
 
@@ -245,95 +229,8 @@ _mAP50 retention under Gaussian noise, blur, brightness/contrast, JPEG and downs
 
 _48 images at 256px. mAP50 here is a per-class AP50 mean computed in-process (compute_per_class_ap), not COCO-style._
 
-### Accuracy on user dataset
+## Accuracy on user dataset
 
 _Precision/recall/mAP50/mAP50-95/IoU on a dataset split via validate.py (needs --weights and --data-yaml)_ — ran in 0.0 s
 
 _Skipped: pass --weights and --data-yaml to enable the accuracy suite_
-
-
-## Suites
-
-| Suite | Measures | Notes |
-| --- | --- | --- |
-| `complexity` | Parameters, GFLOPs/GMACs, FP32/FP16 size | Exact FLOP counts from `torch.utils.flop_counter` |
-| `latency` | Batch‑1 p50/p90/p95/p99, FPS; **decode+resize / forward / postprocess** breakdown | Plus a *dense* worst‑case scenario (see below) |
-| `throughput` | Images/s and ms/image vs batch size | Forward pass |
-| `memory` | Peak RSS (CPU) or VRAM (CUDA) for inference and a training step | Sampled every 4 ms / `max_memory_allocated` |
-| `training` | Step time and images/s (forward + loss + backward + AdamW) | Synthetic batch; also asserts the loss stays finite |
-| `startup` | Checkpoint load time, first‑request penalty, file size | Cold‑start planning |
-| `onnx` | Export time, ONNX size, numerical parity, ONNX Runtime vs PyTorch latency | CPU provider |
-| `api` | Req/s and p50/p95/p99 vs concurrent clients against a **real in‑process uvicorn server** | Includes auth + the full HTTP/decode/serialise path |
-| `e2e` | Seeded synthetic dataset → real `train.py` → real `validate.py` | Proves the whole pipeline learns; not a real‑world accuracy claim |
-| `robustness` | mAP50 retention under noise, blur, brightness/contrast, JPEG, downscaling | Uses the `e2e` model or `--weights/--data-yaml` |
-| `accuracy` | P/R/F1/mAP50/mAP50‑95/IoU on **your** dataset via `validate.py` | `--weights` + `--data-yaml` required |
-
-`fast` = every suite except `api`, `e2e`, `robustness`, `accuracy`. `all` = everything.
-
-### Common options
-
-| Option | Default | |
-| --- | --- | --- |
-| `--profiles` | `firefly,comet,nova` | Comma list or `all` (six profiles) |
-| `--device` | `auto` | `cpu`, `cuda` |
-| `--img-sizes` / `--img-size` | `320,512` / largest | Latency/complexity sizes; primary size for throughput/memory |
-| `--batch-sizes` | `1,2,4,8` | Throughput sweep |
-| `--warmup` / `--runs` | `5` / `30` | Untimed / timed iterations |
-| `--threads` | library default | `torch.set_num_threads` |
-| `--quick` | off | Tiny workloads for CI smoke runs |
-| `--weights`, `--data-yaml` | – | For `accuracy` / `robustness` on your own data |
-| `--e2e-epochs` | 30 (4 with `--quick`) | Synthetic training length |
-
-Output goes to `runs/benchmarks/<timestamp>_<tag>/{results.json,report.md}`; `results.json` is rewritten after every
-suite, so a crash never loses finished work. A failing suite is recorded (`status: error`) and the rest still run.
-
-## Methodology (read before quoting numbers)
-
-* **Timing:** `time.perf_counter` around the call, `torch.cuda.synchronize()` on GPU, untimed warm‑up, `gc.collect()`
-  before the timed loop. Percentiles use linear interpolation over all timed iterations.
-* **Random weights vs trained weights:** speed, size and memory depend on the architecture, not on the learned values,
-  so those suites use freshly initialised models (seeded) — you can benchmark any profile without training it.
-* **Dense scenarios:** a random network emits near‑uniform scores, so at the default threshold (0.25) *no* candidate
-  survives and post‑processing looks free. `predict_dense` lowers the threshold to 0.001 so top‑k, class‑aware NMS and
-  full‑resolution mask composition run at their worst‑case workload (100 detections); `predict_dense_boxes` is the same
-  workload without masks — what the API does unless `include_masks=true`; `predict_default` is the realistic idle case.
-  A trained model on a busy scene sits in between. (This benchmark is how the mask post‑processing cost was found and
-  the box‑only fast path justified.)
-* **Source image:** latency uses a deterministic textured 1280×720 JPEG so decode + resize cost is realistic and
-  reproducible.
-* **Shared hosts are noisy.** Run on an idle machine, pin `--threads`, repeat, and compare *relative* changes on the
-  same box. Absolute numbers are only comparable across identical hardware.
-* **Synthetic quality benchmark:** three shape classes on noisy textured backgrounds, generated from a seed
-  (`benchmarks/synthetic.py`). It validates that data loading, loss, optimisation, checkpointing and evaluation work
-  together. Scores say nothing about performance on real data.
-
-## Regression gating
-
-`compare` flattens each run into headline metrics (latency p50/p95, images/s, memory Δ, load time, ORT p50, API req/s
-and p95, mAP/recall/precision, robustness mAP) and flags any that moved the wrong way by more than `--threshold`
-percent. With `--fail-on-regression` it exits non‑zero, so it can gate a release pipeline on a dedicated, stable
-runner. (The bundled GitHub Actions workflow runs a smoke benchmark only — shared runners are too noisy to gate on.)
-
-## Reproducing the published baseline
-
-```bash
-python -m benchmarks run --suites all --profiles all --img-sizes 320,512 --batch-sizes 1,2,4,8 \
-    --runs 30 --warmup 5 --e2e-epochs 30 --tag baseline-cpu
-```
-
-The committed raw data lives in [`benchmarks/results/`](../benchmarks/results/).
-
-## Adding a suite
-
-1. Create `benchmarks/suites/<name>.py` exposing `DESCRIPTION: str` and `run(ctx: BenchContext) -> dict`
-   (return `{"skipped": "reason", "rows": []}` when prerequisites are missing).
-2. Register it in `benchmarks/suites/__init__.py` (`SUITES`, and `HEAVY` if slow).
-3. Add a renderer in `benchmarks/report.py` (`RENDERERS`, `TITLES`) and, if it has headline numbers, extend
-   `flatten_metrics` so `compare` can gate on them.
-4. Add a fast test in `tests/test_benchmarks.py`.
-
-## Legacy tools
-
-`scripts/benchmark.py` (PyTorch vs ONNX Runtime on real images) and `model_matrix.py` (architecture compatibility and
-training sweep per profile) remain available; the new `onnx` and `training` suites cover similar ground with a
-uniform report format.

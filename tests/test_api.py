@@ -109,6 +109,23 @@ class ProductionAPITests(unittest.TestCase):
         tasks = [call.get("task") for call in model.calls]
         self.assertEqual(tasks, ["detect", "segment", "detect", "segment"])
 
+    def test_service_image_size_resolution(self) -> None:
+        """Explicit --img-size wins; otherwise the checkpoint's training size; otherwise 512."""
+        from serve import MODEL_STORE
+
+        def served_size(model_attr, configured):
+            model = DummyModel()
+            if model_attr is not None:
+                model.train_img_size = model_attr
+            config = ServiceConfig(weights="dummy.pt", enable_warmup=False, image_size=configured)
+            with patch("serve.load_model", return_value=(model, torch.device("cpu"))):
+                with TestClient(create_app(config)):
+                    return MODEL_STORE.inference_service.image_size
+
+        self.assertEqual(served_size(256, None), 256)   # checkpoint training size
+        self.assertEqual(served_size(256, 320), 320)    # explicit override wins
+        self.assertEqual(served_size(None, None), 512)  # fallback
+
     def test_legacy_predict_endpoint_alias(self) -> None:
         with self._test_client() as client:
             files = {"image": ("test.png", self.image_bytes, "image/png")}
