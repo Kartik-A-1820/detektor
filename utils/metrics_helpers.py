@@ -387,3 +387,44 @@ def compute_per_class_ap(
         per_class_ap[class_id] = ap
     
     return per_class_ap
+
+
+def compute_ap50(
+    pred_boxes: Any,
+    pred_scores: Any,
+    pred_labels: Any,
+    gt_boxes: Any,
+    gt_labels: Any,
+    num_classes: int,
+    iou_threshold: float = 0.5,
+) -> float:
+    """Compute mean AP at a single IoU threshold (default 0.5) for one image or pooled set.
+
+    Accepts numpy arrays or tensors. Classes without ground truth are excluded from the
+    mean. Always returns a finite float in ``[0, 1]`` (``0.0`` for empty inputs).
+    """
+
+    def _as_tensor(value: Any, dtype: torch.dtype, shape: Tuple[int, ...]) -> Tensor:
+        tensor = torch.as_tensor(np.asarray(value) if not isinstance(value, Tensor) else value, dtype=dtype)
+        return tensor.reshape(shape) if tensor.numel() == 0 else tensor
+
+    boxes_p = _as_tensor(pred_boxes, torch.float32, (0, 4))
+    scores_p = _as_tensor(pred_scores, torch.float32, (0,))
+    labels_p = _as_tensor(pred_labels, torch.int64, (0,))
+    boxes_g = _as_tensor(gt_boxes, torch.float32, (0, 4))
+    labels_g = _as_tensor(gt_labels, torch.int64, (0,))
+
+    if boxes_g.numel() == 0 or boxes_p.numel() == 0:
+        return 0.0
+
+    per_class = compute_per_class_ap(
+        [{"boxes": boxes_p, "scores": scores_p, "labels": labels_p}],
+        [{"boxes": boxes_g, "labels": labels_g}],
+        num_classes=int(num_classes),
+        iou_threshold=iou_threshold,
+    )
+    present = [per_class[int(c)] for c in labels_g.unique().tolist() if int(c) in per_class]
+    if not present:
+        return 0.0
+    value = float(np.mean(present))
+    return value if np.isfinite(value) else 0.0

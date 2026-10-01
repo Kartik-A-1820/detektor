@@ -391,8 +391,10 @@ def generate_metrics_summary(
     # Epoch summary
     if epoch_df is not None and not epoch_df.empty:
         summary["training"]["total_epochs"] = int(epoch_df["epoch"].max())
-        summary["training"]["best_epoch"] = int(epoch_df.loc[epoch_df["epoch_loss"].idxmin(), "epoch"])
-        summary["training"]["best_epoch_loss"] = float(epoch_df["epoch_loss"].min())
+        loss_col = next((col for col in ("epoch_loss", "avg_loss", "loss") if col in epoch_df.columns), None)
+        if loss_col is not None and "epoch" in epoch_df.columns:
+            summary["training"]["best_epoch"] = int(epoch_df.loc[epoch_df[loss_col].idxmin(), "epoch"])
+            summary["training"]["best_epoch_loss"] = float(epoch_df[loss_col].min())
     
     # Validation summary
     if val_metrics is not None:

@@ -68,7 +68,7 @@ class PredictionResponse(BaseModel):
     boxes: Optional[List[List[float]]] = Field(None, description="Legacy: list of boxes")
     scores: Optional[List[float]] = Field(None, description="Legacy: list of scores")
     labels: Optional[List[int]] = Field(None, description="Legacy: list of labels")
-    masks: Optional[List[str]] = Field(None, description="Legacy: list of masks")
+    masks: Optional[List[Optional[str]]] = Field(None, description="Legacy: list of masks (null where absent)")
 
 
 class BatchPredictionResponse(BaseModel):

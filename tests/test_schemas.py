@@ -197,18 +197,19 @@ class TestSchemas(unittest.TestCase):
         response = MetricsResponse(
             total_requests=100,
             total_predictions=250,
-            total_errors=5,
-            avg_latency_ms=45.2,
-            p50_latency_ms=42.0,
-            p95_latency_ms=78.5,
+            error_count=5,
+            avg_inference_time_ms=45.2,
+            p50_inference_time_ms=42.0,
+            p95_inference_time_ms=78.5,
+            p99_inference_time_ms=90.1,
         )
         
         data = response.model_dump()
         
         self.assertEqual(data["total_requests"], 100)
         self.assertEqual(data["total_predictions"], 250)
-        self.assertEqual(data["total_errors"], 5)
-        self.assertEqual(data["avg_latency_ms"], 45.2)
+        self.assertEqual(data["error_count"], 5)
+        self.assertEqual(data["avg_inference_time_ms"], 45.2)
 
     def test_schema_json_serialization(self) -> None:
         """Test that schemas can be serialized to JSON."""

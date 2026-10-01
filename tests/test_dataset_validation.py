@@ -394,7 +394,7 @@ class TestDatasetValidationIntegration(unittest.TestCase):
 
         # Verify we have the expected files
         image_files = list(train_images.glob("*.jpg"))
-        self.assertEqual(len(image_files), 5)  # 3 valid + 1 missing label + 1 corrupt
+        self.assertEqual(len(image_files), 6)  # 3 valid + 1 missing label + 1 corrupt + 1 invalid class
 
         label_files = list(train_labels.glob("*.txt"))
         self.assertEqual(len(label_files), 4)  # 3 valid + 1 invalid class

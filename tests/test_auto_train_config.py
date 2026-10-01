@@ -76,8 +76,9 @@ class TestAutoTrainConfig(unittest.TestCase):
         self.assertFalse(cfg["train"]["amp"])
         self.assertEqual(cfg["data"]["num_classes"], 1)
         self.assertEqual(cfg["data"]["names"], ["ball"])
-        self.assertEqual(cfg["model"]["profile"], "comet")
-        self.assertEqual(summary["model_display_name"], "Comet")
+        # Micro datasets deliberately step the profile down from the hardware tier.
+        self.assertEqual(cfg["model"]["profile"], "firefly")
+        self.assertEqual(summary["model_display_name"], "Firefly")
         self.assertTrue(summary["out_dir"].startswith("runs"))
         self.assertGreater(summary["augment"]["scale"], 0.0)
         self.assertGreater(summary["augment"]["mosaic"], 0.0)
