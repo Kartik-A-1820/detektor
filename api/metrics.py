@@ -23,6 +23,17 @@ class MetricsStore:
     
     # Keep only last N measurements to avoid unbounded memory growth
     max_history: int = 10000
+
+    # Cumulative latency histogram (Prometheus-style, never trimmed)
+    bucket_bounds_ms: tuple = (5.0, 10.0, 25.0, 50.0, 100.0, 250.0, 500.0, 1000.0, 2500.0, 5000.0)
+    bucket_counts: List[int] = field(default_factory=list)
+    latency_sum_ms: float = 0.0
+    latency_count: int = 0
+    started_at: float = field(default_factory=time.time)
+
+    def __post_init__(self) -> None:
+        if not self.bucket_counts:
+            self.bucket_counts = [0] * len(self.bucket_bounds_ms)
     
     def record_request(self, inference_time_ms: float, num_predictions: int = 1, error: bool = False) -> None:
         """Record a request with its metrics.
@@ -37,6 +48,11 @@ class MetricsStore:
             if not error:
                 self.total_predictions += num_predictions
                 self.inference_times.append(inference_time_ms)
+                self.latency_sum_ms += inference_time_ms
+                self.latency_count += 1
+                for index, bound in enumerate(self.bucket_bounds_ms):
+                    if inference_time_ms <= bound:
+                        self.bucket_counts[index] += 1
                 
                 # Trim history if needed
                 if len(self.inference_times) > self.max_history:
@@ -81,6 +97,40 @@ class MetricsStore:
             self.total_predictions = 0
             self.error_count = 0
             self.inference_times.clear()
+            self.bucket_counts = [0] * len(self.bucket_bounds_ms)
+            self.latency_sum_ms = 0.0
+            self.latency_count = 0
+
+    def render_prometheus(self, extra_info: Dict[str, str] | None = None) -> str:
+        """Render counters and the latency histogram in Prometheus text exposition format."""
+        with self._lock:
+            lines = [
+                "# HELP detektor_requests_total Total inference requests received.",
+                "# TYPE detektor_requests_total counter",
+                f"detektor_requests_total {self.total_requests}",
+                "# HELP detektor_errors_total Total requests that ended in an error.",
+                "# TYPE detektor_errors_total counter",
+                f"detektor_errors_total {self.error_count}",
+                "# HELP detektor_predictions_total Total detections returned.",
+                "# TYPE detektor_predictions_total counter",
+                f"detektor_predictions_total {self.total_predictions}",
+                "# HELP detektor_inference_latency_ms Model inference latency in milliseconds.",
+                "# TYPE detektor_inference_latency_ms histogram",
+            ]
+            for bound, count in zip(self.bucket_bounds_ms, self.bucket_counts):
+                lines.append(f'detektor_inference_latency_ms_bucket{{le="{bound:g}"}} {count}')
+            lines.append(f'detektor_inference_latency_ms_bucket{{le="+Inf"}} {self.latency_count}')
+            lines.append(f"detektor_inference_latency_ms_sum {self.latency_sum_ms:.6f}")
+            lines.append(f"detektor_inference_latency_ms_count {self.latency_count}")
+            lines.append("# HELP detektor_uptime_seconds Seconds since the metrics store was created.")
+            lines.append("# TYPE detektor_uptime_seconds gauge")
+            lines.append(f"detektor_uptime_seconds {time.time() - self.started_at:.1f}")
+        if extra_info:
+            labels = ",".join(f'{key}="{value}"' for key, value in sorted(extra_info.items()))
+            lines.append("# HELP detektor_build_info Static build and runtime information.")
+            lines.append("# TYPE detektor_build_info gauge")
+            lines.append(f"detektor_build_info{{{labels}}} 1")
+        return "\n".join(lines) + "\n"
 
 
 # Global metrics store instance

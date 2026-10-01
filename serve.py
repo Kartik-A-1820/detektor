@@ -1,19 +1,23 @@
 from __future__ import annotations
 
 import argparse
+import asyncio
 import copy
 import logging
 import os
 import threading
 from contextlib import asynccontextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import AsyncIterator, List, Optional
 
 import uvicorn
-from fastapi import FastAPI, File, HTTPException, Query, Request, UploadFile
-from fastapi.responses import JSONResponse
+from fastapi import Depends, FastAPI, File, HTTPException, Query, Request, UploadFile
+from fastapi.concurrency import run_in_threadpool
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse, PlainTextResponse
 
+from api import __version__ as API_PACKAGE_VERSION
 from api.inference import InferenceService
 from api.logging_utils import (
     generate_request_id,
@@ -27,6 +31,7 @@ from api.logging_utils import (
 )
 from api.metrics import get_metrics_store
 from api.run_artifacts import discover_checkpoint_options, load_run_artifacts
+from api.security import make_api_key_dependency, sanitize_request_id
 from api.schemas import (
     BatchPredictionResponse,
     ErrorResponse,
@@ -43,7 +48,7 @@ from api.validation import ImageValidationError, validate_uploaded_image
 LOGGER = logging.getLogger("detektor.serve")
 
 # API version
-API_VERSION = "1.0.0"
+API_VERSION = API_PACKAGE_VERSION
 
 
 @dataclass
@@ -68,6 +73,10 @@ class ServiceConfig:
     log_level: str = "INFO"
     ui_enabled: bool = False
     ui_path: str = "/ui"
+    ui_auth: Optional[str] = None  # "user:password" for the Gradio UI
+    api_key: Optional[str] = None  # when set, protects inference/runtime/metrics endpoints
+    cors_origins: List[str] = field(default_factory=list)
+    max_concurrency: int = 1  # simultaneous model executions (protects small GPUs)
 
 
 class ModelStore:
@@ -187,18 +196,46 @@ def create_app(config: ServiceConfig) -> FastAPI:
         lifespan=lifespan,
     )
     
-    # Request ID middleware
+    require_api_key = make_api_key_dependency(config.api_key)
+    protected = [Depends(require_api_key)]
+    inference_slots = asyncio.Semaphore(max(1, int(config.max_concurrency)))
+    # Generous bound for a full batch of max-size uploads plus multipart overhead.
+    max_body_bytes = (max(1, config.max_batch_size) * config.max_upload_size_mb + 1) * 1024 * 1024
+
+    if config.cors_origins:
+        app.add_middleware(
+            CORSMiddleware,
+            allow_origins=config.cors_origins,
+            allow_methods=["GET", "POST", "OPTIONS"],
+            allow_headers=["*"],
+            expose_headers=["X-Request-ID", "X-Response-Time"],
+        )
+
+    # Request ID, payload limit and security headers middleware
     @app.middleware("http")
     async def add_request_id_middleware(request: Request, call_next):
-        request_id = generate_request_id()
+        request_id = sanitize_request_id(request.headers.get("x-request-id")) or generate_request_id()
         set_request_id(request_id)
-        
-        with RequestTimer() as timer:
-            response = await call_next(request)
-        
+
+        declared_length = request.headers.get("content-length")
+        if declared_length and declared_length.isdigit() and int(declared_length) > max_body_bytes:
+            get_metrics_store().record_request(0.0, 0, error=True)
+            response = JSONResponse(
+                status_code=413,
+                content=ErrorResponse(
+                    error="PayloadTooLarge",
+                    message=f"Request body exceeds the {max_body_bytes // (1024 * 1024)} MB limit",
+                    request_id=request_id,
+                ).model_dump(),
+            )
+        else:
+            with RequestTimer() as timer:
+                response = await call_next(request)
+            response.headers["X-Response-Time"] = f"{timer.duration_ms:.2f}ms"
+
         response.headers["X-Request-ID"] = request_id
-        response.headers["X-Response-Time"] = f"{timer.duration_ms:.2f}ms"
-        
+        response.headers.setdefault("X-Content-Type-Options", "nosniff")
+        response.headers.setdefault("Referrer-Policy", "no-referrer")
         return response
     
     # Exception handlers
@@ -268,26 +305,42 @@ def create_app(config: ServiceConfig) -> FastAPI:
             num_classes=num_classes,
         )
     
-    @app.get("/metrics", response_model=MetricsResponse, tags=["Monitoring"])
+    @app.get("/metrics", response_model=MetricsResponse, tags=["Monitoring"], dependencies=protected)
     async def metrics() -> MetricsResponse:
         """Service metrics endpoint."""
         stats = get_metrics_store().get_stats()
         return MetricsResponse(**stats)
 
-    @app.get("/runtime", tags=["Runtime"])
+    @app.get("/metrics/prometheus", response_class=PlainTextResponse, tags=["Monitoring"], dependencies=protected)
+    async def metrics_prometheus() -> PlainTextResponse:
+        """Metrics in Prometheus text exposition format (scrape target)."""
+        with MODEL_STORE.lock:
+            service = MODEL_STORE.inference_service
+            checkpoint = MODEL_STORE.active_checkpoint_key or "unknown"
+        info = {
+            "version": API_VERSION,
+            "device": str(service.device) if service is not None else "uninitialized",
+            "checkpoint": checkpoint,
+        }
+        return PlainTextResponse(
+            get_metrics_store().render_prometheus(info),
+            media_type="text/plain; version=0.0.4; charset=utf-8",
+        )
+
+    @app.get("/runtime", tags=["Runtime"], dependencies=protected)
     async def runtime() -> dict:
         """Runtime metadata for the active run and checkpoint."""
         return get_runtime_state()
 
-    @app.post("/runtime/select_model", tags=["Runtime"])
+    @app.post("/runtime/select_model", tags=["Runtime"], dependencies=protected)
     async def select_model(model_key: str = Query(..., description="Checkpoint key: best, last, or custom")) -> dict:
         """Switch the active checkpoint without restarting the service."""
         state = get_runtime_state()
         if model_key not in state.get("available_checkpoints", {}):
             raise HTTPException(status_code=404, detail=f"Unknown checkpoint key: {model_key}")
-        return select_active_checkpoint(model_key)
+        return await run_in_threadpool(select_active_checkpoint, model_key)
 
-    @app.post("/v1/predict", response_model=PredictionResponse, tags=["Prediction"])
+    @app.post("/v1/predict", response_model=PredictionResponse, tags=["Prediction"], dependencies=protected)
     async def predict_v1(
         image: UploadFile = File(..., description="Image file to run inference on"),
         conf_thresh: Optional[float] = Query(None, ge=0.0, le=1.0, description="Confidence threshold"),
@@ -314,13 +367,15 @@ def create_app(config: ServiceConfig) -> FastAPI:
         )
         
         # Run inference
-        response_data, inference_time = service.predict_single(
-            image_bytes=image_bytes,
-            conf_thresh=conf_thresh,
-            iou_thresh=iou_thresh,
-            max_det=max_det,
-            include_masks=include_masks,
-        )
+        async with inference_slots:
+            response_data, inference_time = await run_in_threadpool(
+                service.predict_single,
+                image_bytes=image_bytes,
+                conf_thresh=conf_thresh,
+                iou_thresh=iou_thresh,
+                max_det=max_det,
+                include_masks=include_masks,
+            )
         
         # Add request ID
         response_data["request_id"] = request_id
@@ -340,7 +395,7 @@ def create_app(config: ServiceConfig) -> FastAPI:
         
         return PredictionResponse(**response_data)
     
-    @app.post("/predict", response_model=PredictionResponse, tags=["Prediction"], deprecated=True)
+    @app.post("/predict", response_model=PredictionResponse, tags=["Prediction"], deprecated=True, dependencies=protected)
     async def predict_legacy(
         image: UploadFile = File(...),
         include_masks: bool = Query(default=config.include_masks_default),
@@ -357,7 +412,7 @@ def create_app(config: ServiceConfig) -> FastAPI:
             include_masks=include_masks,
         )
     
-    @app.post("/v1/predict_batch", response_model=BatchPredictionResponse, tags=["Prediction"])
+    @app.post("/v1/predict_batch", response_model=BatchPredictionResponse, tags=["Prediction"], dependencies=protected)
     async def predict_batch(
         images: List[UploadFile] = File(..., description="List of image files"),
         conf_thresh: Optional[float] = Query(None, ge=0.0, le=1.0, description="Confidence threshold"),
@@ -404,13 +459,15 @@ def create_app(config: ServiceConfig) -> FastAPI:
                 )
         
         # Run batch inference
-        predictions, total_time = service.predict_batch(
-            images_bytes=images_bytes,
-            conf_thresh=conf_thresh,
-            iou_thresh=iou_thresh,
-            max_det=max_det,
-            include_masks=include_masks,
-        )
+        async with inference_slots:
+            predictions, total_time = await run_in_threadpool(
+                service.predict_batch,
+                images_bytes=images_bytes,
+                conf_thresh=conf_thresh,
+                iou_thresh=iou_thresh,
+                max_det=max_det,
+                include_masks=include_masks,
+            )
         
         # Add request IDs to individual predictions
         for pred in predictions:
@@ -582,6 +639,32 @@ def main() -> None:
         help="Path where the GUI will be mounted when --ui is enabled (env: DETEKTOR_UI_PATH)",
     )
     
+    parser.add_argument(
+        "--ui-auth",
+        type=str,
+        default=os.getenv("DETEKTOR_UI_AUTH") or None,
+        help="Protect the GUI with HTTP login, formatted as user:password (env: DETEKTOR_UI_AUTH)",
+    )
+    parser.add_argument(
+        "--api-key",
+        type=str,
+        default=os.getenv("DETEKTOR_API_KEY") or None,
+        help="Require this API key (X-API-Key or Bearer token) on inference, runtime and metrics "
+        "endpoints (env: DETEKTOR_API_KEY)",
+    )
+    parser.add_argument(
+        "--cors-origins",
+        type=str,
+        default=os.getenv("DETEKTOR_CORS_ORIGINS", ""),
+        help="Comma-separated list of allowed CORS origins; empty disables CORS (env: DETEKTOR_CORS_ORIGINS)",
+    )
+    parser.add_argument(
+        "--max-concurrency",
+        type=int,
+        default=int(os.getenv("DETEKTOR_MAX_CONCURRENCY", "1")),
+        help="Maximum simultaneous model executions (env: DETEKTOR_MAX_CONCURRENCY)",
+    )
+
     args = parser.parse_args()
 
     config = ServiceConfig(
@@ -605,6 +688,10 @@ def main() -> None:
         log_level=args.log_level,
         ui_enabled=args.ui,
         ui_path=args.ui_path,
+        ui_auth=args.ui_auth,
+        api_key=args.api_key,
+        cors_origins=[origin.strip() for origin in args.cors_origins.split(",") if origin.strip()],
+        max_concurrency=args.max_concurrency,
     )
     
     app = create_app(config)
@@ -624,6 +711,7 @@ def main() -> None:
             path=config.ui_path,
             allowed_paths=[str(Path.cwd())],
             show_error=True,
+            auth=tuple(config.ui_auth.split(":", 1)) if config.ui_auth and ":" in config.ui_auth else None,
         )
     uvicorn.run(
         app,
