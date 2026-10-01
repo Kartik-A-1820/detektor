@@ -1,6 +1,6 @@
 # Runtime dependencies. GPU users: install a CUDA build of torch first
 # (https://pytorch.org/get-started/locally/), then `pip install -r requirements.txt`.
-torch>=2.1
+torch>=2.14.0
 torchvision>=0.16
 numpy>=1.24
 opencv-python-headless>=4.8
