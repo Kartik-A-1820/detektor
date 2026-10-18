@@ -12,7 +12,7 @@ from typing import Any, Dict
 from benchmarks.common import BenchContext
 from benchmarks.env import REPO_ROOT
 
-DESCRIPTION = "Precision/recall/mAP50/mAP50-95/IoU on a dataset split via validate.py (needs --weights and --data-yaml)"
+DESCRIPTION = "Precision/recall and COCO-style mAP50/mAP50-95 (pycocotools) on a dataset split via validate.py (needs --weights and --data-yaml)"
 
 
 def validate_checkpoint(weights: str, data_yaml: str, out_dir: Path, device: str = "cpu", conf: float = 0.05,
@@ -46,6 +46,12 @@ def validate_checkpoint(weights: str, data_yaml: str, out_dir: Path, device: str
         "f1": round(overall["f1"], 4),
         "map50": round(overall["map50"], 4),
         "ap50_95": round(overall.get("ap50_95", 0.0), 4),
+        "map75": round(overall.get("map75", 0.0), 4),
+        "ap_small": overall.get("ap_small"),
+        "ap_medium": overall.get("ap_medium"),
+        "ap_large": overall.get("ap_large"),
+        "ar_100": round(overall.get("ar_100", 0.0), 4),
+        "metric_note": "COCO-style (pycocotools): pooled over the dataset, 101-point interpolation",
         "mean_box_iou": round(overall.get("mean_box_iou", 0.0), 4),
         "mean_mask_iou": round(overall.get("mean_mask_iou", 0.0), 4),
         "per_class": [

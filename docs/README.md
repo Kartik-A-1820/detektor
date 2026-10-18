@@ -33,6 +33,7 @@ The repository root stays focused on runnable entry points and project metadata;
 | --- | --- |
 | [ARCHITECTURE](ARCHITECTURE.md) | System design, model, checkpoints, serving layer, repository layout |
 | [BENCHMARKS](BENCHMARKS.md) | Benchmark suites, methodology, published baseline, regression gating |
+| [ROADMAP](ROADMAP.md) | Prioritised plan: performance and accuracy first, then UI/visuals |
 | [status/PROJECT_STATUS.md](status/PROJECT_STATUS.md) | Maturity, limitations and roadmap |
 | [../CHANGELOG.md](../CHANGELOG.md) | Release notes |
 | [../SECURITY.md](../SECURITY.md) | Security policy and hardening guidance |

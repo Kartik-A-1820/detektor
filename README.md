@@ -187,11 +187,13 @@ _Real uvicorn server with auth enabled, 1280×720 JPEG uploads, single model exe
 
 _Forward pass only (the exported graph excludes decode/NMS/masks). `Max abs diff` is the worst output deviation vs PyTorch._
 
-### Pipeline quality check (synthetic data) and robustness
+### Accuracy baselines (COCO‑style mAP) and robustness
 
-`firefly` trained for 30 epochs on 192 synthetic images (256 px, CPU, 318 s) → **mAP50 1.000**, AP50‑95 0.868, precision 0.950, recall 1.000 on 48 held‑out images (`conf=0.05`). This proves the data → train → checkpoint → validate path learns; it is **not** a real‑world accuracy claim.
+**Real photographs** — `african-wildlife` (400 train / 225 val images, 4 classes), `firefly` (1.4 M parameters) trained **from scratch** for 20 epochs at 320 px on CPU in 558 s → **mAP50 0.218**, mAP50‑95 0.091, mean box IoU 0.72. A tiny model trained for minutes without pretrained weights is a *reference point to improve on*, not a showcase (pretrained backbones are the top item on the [roadmap](docs/ROADMAP.md)). Before the 1.1 box-decoding fix this same run scored exactly 0.
 
-Robustness: across 9 corruptions (Gaussian noise σ=10/25, blur, brightness ×0.6/×1.4, contrast ×0.5, JPEG q20, 0.5× downscale) mAP50 retains ≥ 99.98% of the clean score (worst: `brightness_x0.6`). That is expected on this easy, high-contrast task — run the `robustness` suite on *your* model and data for a meaningful curve.
+**Synthetic shapes** — `firefly` trained for 30 epochs on 192 synthetic images (256 px, CPU, 672 s) → **mAP50 1.000**, AP50‑95 0.952, mAP75 0.987, precision 0.594, recall 1.000 on 48 held‑out images (`conf=0.05`). This proves the data → train → checkpoint → validate path learns; it is not a real‑world accuracy claim.
+
+Robustness: across 9 corruptions (Gaussian noise σ=10/25, blur, brightness ×0.6/×1.4, contrast ×0.5, JPEG q20, 0.5× downscale) mAP50 retains ≥ 100% of the clean score (worst: `gaussian_noise_s10`). That is expected on this easy, high-contrast task — run the `robustness` suite on *your* model and data for a meaningful curve.
 
 What the suites cover — complexity, latency breakdown, throughput, memory, training speed, cold start, ONNX, API load,
 end‑to‑end quality, robustness, accuracy on your data — and how to add more: [docs/BENCHMARKS.md](docs/BENCHMARKS.md).

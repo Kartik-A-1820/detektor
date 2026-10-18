@@ -112,6 +112,7 @@ def export_onnx(
         "output_shapes": output_shapes,
         "dynamic_batch": dynamic_batch,
         "image_size": image_size,
+        "box_decode": getattr(model, "box_decode", None),
         "opset": int(opset),
         "parity": parity_summary,
     }

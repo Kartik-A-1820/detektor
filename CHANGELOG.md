@@ -6,6 +6,13 @@ and the project aims to follow [Semantic Versioning](https://semver.org/).
 ## [1.1.0] - 2026-10-18 - Production hardening release
 
 ### Added
+- **COCO-faithful evaluation** (`metrics/coco_eval.py`, backed by `pycocotools`): `validate.py` now reports pooled
+  mAP50 / mAP75 / mAP50-95, size-bucketed AP, AR@100 and per-class AP50-95 and PR curves. The previous AP50-95 was an
+  average of *per-image* APs (skipping images without predictions or ground truth) and overstated it by ~6 % on the
+  synthetic benchmark; those figures remain available as `*_legacy` keys. Published benchmark numbers were regenerated.
+- **Both YOLO dataset layouts are supported:** Roboflow (`<split>/images`) and the YOLOv5/v8 layout (`images/<split>`,
+  `labels/<split>`), the YAML `path:` key, and YAMLs with `names` but no `nc`. `check_dataset.py` now resolves relative
+  paths against the YAML instead of the current directory.
 - **Class-agnostic NMS** (`agnostic_nms` query parameter, `--agnostic-nms` / `DETEKTOR_AGNOSTIC_NMS`, console checkbox,
   `infer.py --agnostic-nms`): overlapping boxes suppress each other regardless of class.
 - **Safe checkpoint loading:** every `torch.load` now uses `weights_only=True` via `safe_torch_load`; files needing full
@@ -44,6 +51,14 @@ and the project aims to follow [Semantic Versioning](https://semver.org/).
 - Python source cleaned with `ruff` (whitespace, import order, unused names).
 
 ### Fixed
+- **Training collapsed on real photos with large objects.** The box head regressed raw *pixel* distances through a
+  ReLU: it had to output values like 150 from a near-zero initialisation and ~46 % of outputs sat in the ReLU dead zone
+  with zero gradient, so box loss stayed at ≈1.03 (CIoU ≈ 0) from the first step, IoU-aware objectness then learned to
+  predict "nothing", and mAP was exactly 0 on a 4-class animal-photo dataset (it only worked on the small synthetic
+  shapes). New models now predict distances in **stride units** through a smooth `softplus`
+  (`distance_px = softplus(raw) × stride`, option `model.box_decode: stride`). On the same real benchmark (400 images,
+  20 CPU epochs, 1.4 M-parameter model, from scratch) mAP50 went from **0.000 to 0.218**. Existing checkpoints are
+  unaffected: checkpoints without the option rebuild with the legacy `pixels` decode and produce identical outputs.
 - **ONNX exports were numerically wrong for trained models.** `export.py` traced through a wrapper left in training
   mode, which flipped the inner model to training mode and baked BatchNorm *batch statistics* into the graph (max
   output difference ≈ 50 vs PyTorch; 1e-5 after the fix). Export now forces eval mode in both `export.py` and the shared
@@ -68,7 +83,7 @@ and the project aims to follow [Semantic Versioning](https://semver.org/).
 - Decompression-bomb guard: oversized images are rejected from the header before pixel decoding.
 - `PredictionResponse.masks` rejected `null` entries; `compute_ap50` was missing from `utils.metrics_helpers`;
   report generation crashed when the epoch summary used `avg_loss` instead of `epoch_loss`.
-- Ten previously failing tests (stale expectations and the issues above); the suite is green (235+ tests).
+- Ten previously failing tests (stale expectations and the issues above); the suite is green (280+ tests).
 - `.gitignore` ignored the `datasets/` Python package; compiled `__pycache__` files were tracked.
 
 ## [Unreleased]

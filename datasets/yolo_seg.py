@@ -9,6 +9,7 @@ import torch
 from torch import Tensor
 from torch.utils.data import Dataset
 
+from utils.data_config import resolve_split_dirs
 from utils.task_detection import TaskMode, analyze_dataset_task, print_task_detection_summary
 
 SUPPORTED_IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".bmp", ".webp"}
@@ -30,8 +31,7 @@ class YOLOSegDataset(Dataset):
         self.img_size = int(img_size)
         self.augment = bool(augment)
         self.augment_cfg = augment_cfg or {}
-        self.images_dir = self.root / "images"
-        self.labels_dir = self.root / "labels"
+        self.images_dir, self.labels_dir = resolve_split_dirs(self.root)
 
         if not self.images_dir.exists():
             raise FileNotFoundError(f"Images directory does not exist: {self.images_dir}")

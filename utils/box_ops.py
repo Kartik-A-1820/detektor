@@ -21,11 +21,26 @@ def flatten_prediction_levels(predictions: Sequence[Tensor]) -> Tensor:
     return torch.cat([flatten_prediction_map(level) for level in predictions], dim=1)
 
 
-def distances_to_boxes(points: Tensor, distances: Tensor) -> Tensor:
+BOX_DECODE_PIXELS = "pixels"  # legacy: relu(raw) is the distance in pixels
+BOX_DECODE_STRIDE = "stride"  # softplus(raw) * stride: distances in stride units (default for new models)
+
+
+def distances_to_boxes(
+    points: Tensor,
+    distances: Tensor,
+    strides: Tensor | None = None,
+    mode: str = BOX_DECODE_PIXELS,
+) -> Tensor:
     """Decode ltrb distances into absolute xyxy boxes.
 
-    A ``relu`` positivity constraint is used because it is lightweight, stable under AMP,
-    and avoids the very large box values that can occur with ``exp`` early in training.
+    ``mode="pixels"`` (legacy, the default here so old checkpoints decode identically) applies a ``relu``
+    and treats the result as pixels. That makes the head regress large pixel values from a near-zero
+    initialisation and leaves a dead zone (about half the outputs sit at <= 0 with zero gradient), which
+    stalls training on datasets with large objects.
+
+    ``mode="stride"`` predicts distances in units of the feature-map stride through a smooth ``softplus``
+    (``distance_px = softplus(raw) * stride``), as in FCOS/YOLOX-style heads: values are O(1-10) at every
+    pyramid level and every output receives gradient. Requires ``strides`` with one entry per point.
     """
     if points.ndim != 2 or points.shape[-1] != 2:
         raise AssertionError(f"Expected points shape [N, 2], got {tuple(points.shape)}")
@@ -38,7 +53,14 @@ def distances_to_boxes(points: Tensor, distances: Tensor) -> Tensor:
     distances = torch.nan_to_num(distances, nan=0.0, posinf=1000.0, neginf=0.0)
     distances = distances.clamp(min=-1000.0, max=1000.0)
 
-    positive = F.relu(distances)
+    if mode == BOX_DECODE_STRIDE:
+        if strides is None:
+            raise AssertionError("box_decode='stride' requires per-point strides")
+        positive = F.softplus(distances) * strides.reshape(1, -1, 1).to(dtype=distances.dtype)
+    elif mode == BOX_DECODE_PIXELS:
+        positive = F.relu(distances)
+    else:
+        raise ValueError(f"Unknown box decode mode '{mode}' (expected 'pixels' or 'stride')")
     px = points[:, 0].view(1, -1)
     py = points[:, 1].view(1, -1)
 

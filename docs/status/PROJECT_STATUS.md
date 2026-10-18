@@ -28,8 +28,9 @@ drop-in replacement for large, pretrained detector families — see *Known limit
 
 ## Known limitations
 
-- **Model quality** — recall/precision on difficult real-world datasets is the main open problem; no pretrained weights
-  or model zoo are shipped. Always evaluate on your own data first.
+- **Model quality** — trained from scratch the tiny profiles reach only modest accuracy on real photos (reference: mAP50 0.22
+  / mAP50-95 0.09 on a 400-image, 4-class animal dataset after 20 CPU epochs); no pretrained weights or model zoo are
+  shipped. Pretrained backbones are the top roadmap item ([ROADMAP](../ROADMAP.md)). Always evaluate on your own data first.
 - No TensorRT runtime; ONNX Runtime export is supported (and markedly faster than eager PyTorch on CPU).
 - No distributed / multi-GPU training.
 - Single model execution per process; scale horizontally. No built-in TLS or rate limiting.

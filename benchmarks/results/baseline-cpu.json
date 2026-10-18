@@ -28,7 +28,8 @@
       "api",
       "e2e",
       "robustness",
-      "accuracy"
+      "accuracy",
+      "real"
     ],
     "profiles": [
       "firefly",
@@ -53,7 +54,8 @@
     "warmup": 5,
     "runs": 30,
     "seed": 0,
-    "quick": false
+    "quick": false,
+    "note": "performance suites (complexity..api) from the 1.1 baseline run; e2e, robustness and real re-run on the final 1.1 code (COCO-style metrics, stride box decoding) on the same machine"
   },
   "suites": {
     "complexity": {
@@ -2186,113 +2188,119 @@
       "val_images": 48,
       "img_size": 256,
       "epochs": 30,
-      "train_wall_s": 317.7,
-      "train_images_per_s": 18.13,
+      "train_wall_s": 672.1,
+      "train_images_per_s": 8.57,
       "metrics": {
-        "validation_wall_s": 4.94,
+        "validation_wall_s": 5.57,
         "num_images": 48,
-        "precision": 0.95,
+        "precision": 0.5938,
         "recall": 1.0,
-        "f1": 0.9744,
+        "f1": 0.7451,
         "map50": 1.0,
-        "ap50_95": 0.8678,
-        "mean_box_iou": 0.9134,
-        "mean_mask_iou": 0.7569,
+        "ap50_95": 0.9517,
+        "map75": 0.9866,
+        "ap_small": null,
+        "ap_medium": 0.9516576367124907,
+        "ap_large": null,
+        "ar_100": 0.9658,
+        "metric_note": "COCO-style (pycocotools): pooled over the dataset, 101-point interpolation",
+        "mean_box_iou": 0.9548,
+        "mean_mask_iou": 0.7586,
         "per_class": [
           {
             "class": "rectangle",
             "ap50": 1.0,
-            "precision": 0.9302,
+            "precision": 0.6557,
             "recall": 1.0
           },
           {
             "class": "ellipse",
             "ap50": 1.0,
-            "precision": 0.9444,
+            "precision": 0.5231,
             "recall": 1.0
           },
           {
             "class": "triangle",
             "ap50": 1.0,
-            "precision": 0.9756,
+            "precision": 0.6061,
             "recall": 1.0
           }
         ]
       },
-      "checkpoint": "/home/user/detektor/runs/benchmarks/20261001-180743_baseline-cpu/e2e/run/chimera_best.pt",
+      "checkpoint": "/home/user/detektor/runs/benchmarks/20261018-023231_baseline-quality3/e2e/run/chimera_best.pt",
       "status": "ok",
-      "duration_s": 323.4
+      "duration_s": 678.7
     },
     "robustness": {
       "description": "mAP50 retention under Gaussian noise, blur, brightness/contrast, JPEG and downscaling",
-      "weights": "/home/user/detektor/runs/benchmarks/20261001-180743_baseline-cpu/e2e/run/chimera_best.pt",
+      "weights": "/home/user/detektor/runs/benchmarks/20261018-023231_baseline-quality3/e2e/run/chimera_best.pt",
       "images": 48,
       "img_size": 256,
-      "note": "mAP50 here is a per-class AP50 mean computed in-process (compute_per_class_ap), not COCO-style.",
+      "note": "mAP50 is COCO-style (pycocotools) at IoU 0.5, computed in-process.",
       "rows": [
         {
           "perturbation": "clean",
           "map50": 1.0,
           "retention": 1.0,
-          "mean_detections": 3.0
+          "mean_detections": 4.06
         },
         {
           "perturbation": "gaussian_noise_s10",
           "map50": 1.0,
           "retention": 1.0,
-          "mean_detections": 2.94
+          "mean_detections": 4.19
         },
         {
           "perturbation": "gaussian_noise_s25",
           "map50": 1.0,
           "retention": 1.0,
-          "mean_detections": 2.94
+          "mean_detections": 4.19
         },
         {
           "perturbation": "blur_k5",
           "map50": 1.0,
           "retention": 1.0,
-          "mean_detections": 2.94
+          "mean_detections": 4.12
         },
         {
           "perturbation": "blur_k9",
           "map50": 1.0,
           "retention": 1.0,
-          "mean_detections": 2.98
+          "mean_detections": 4.1
         },
         {
           "perturbation": "brightness_x0.6",
-          "map50": 0.9998,
-          "retention": 0.9998,
-          "mean_detections": 4.0
+          "map50": 1.0,
+          "retention": 1.0,
+          "mean_detections": 4.25
         },
         {
           "perturbation": "brightness_x1.4",
           "map50": 1.0,
           "retention": 1.0,
-          "mean_detections": 2.96
+          "mean_detections": 4.31
         },
         {
           "perturbation": "contrast_x0.5",
-          "map50": 0.9998,
-          "retention": 0.9998,
-          "mean_detections": 4.1
+          "map50": 1.0,
+          "retention": 1.0,
+          "mean_detections": 4.25
         },
         {
           "perturbation": "jpeg_q20",
           "map50": 1.0,
           "retention": 1.0,
-          "mean_detections": 2.96
+          "mean_detections": 4.06
         },
         {
           "perturbation": "downscale_x0.5",
           "map50": 1.0,
           "retention": 1.0,
-          "mean_detections": 2.94
+          "mean_detections": 4.1
         }
       ],
       "status": "ok",
-      "duration_s": 13.0
+      "duration_s": 14.8
     },
     "accuracy": {
       "description": "Precision/recall/mAP50/mAP50-95/IoU on a dataset split via validate.py (needs --weights and --data-yaml)",
@@ -2300,6 +2308,65 @@
       "rows": [],
       "status": "skipped",
       "duration_s": 0.0
+    },
+    "real": {
+      "description": "Train on a public (or your own) real dataset and report COCO-style mAP, per-class AP and training time",
+      "dataset": "african-wildlife",
+      "dataset_source": "/root/.cache/detektor/datasets/african-wildlife/african-wildlife.yaml",
+      "dataset_license": "AGPL-3.0 (as distributed by Ultralytics)",
+      "profile": "firefly",
+      "device": "cpu",
+      "img_size": 320,
+      "epochs": 20,
+      "train_images": 400,
+      "val_images": 225,
+      "train_wall_s": 558.2,
+      "metrics": {
+        "validation_wall_s": 9.5,
+        "num_images": 225,
+        "precision": 0.1809,
+        "recall": 0.504,
+        "f1": 0.2662,
+        "map50": 0.218,
+        "ap50_95": 0.0912,
+        "map75": 0.0519,
+        "ap_small": 0.0,
+        "ap_medium": 0.02635743314765939,
+        "ap_large": 0.12294706482789958,
+        "ar_100": 0.2501,
+        "metric_note": "COCO-style (pycocotools): pooled over the dataset, 101-point interpolation",
+        "mean_box_iou": 0.7208,
+        "mean_mask_iou": 0.0,
+        "per_class": [
+          {
+            "class": "buffalo",
+            "ap50": 0.2943,
+            "precision": 0.2624,
+            "recall": 0.5955
+          },
+          {
+            "class": "elephant",
+            "ap50": 0.0304,
+            "precision": 0.1667,
+            "recall": 0.0659
+          },
+          {
+            "class": "rhino",
+            "ap50": 0.226,
+            "precision": 0.1739,
+            "recall": 0.6588
+          },
+          {
+            "class": "zebra",
+            "ap50": 0.3214,
+            "precision": 0.1532,
+            "recall": 0.6667
+          }
+        ]
+      },
+      "note": "trained from scratch (no pretrained weights); a short CPU run, so treat as a relative baseline",
+      "status": "ok",
+      "duration_s": 567.9
     }
   }
 }

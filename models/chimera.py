@@ -7,7 +7,7 @@ from torch import Tensor, nn
 
 from losses import DetectionLoss, SegmentationLoss
 from utils.anchors import concatenate_points_and_strides, generate_points_for_features
-from utils.box_ops import distances_to_boxes, flatten_prediction_levels
+from utils.box_ops import BOX_DECODE_STRIDE, distances_to_boxes, flatten_prediction_levels
 from utils.mask_ops import (
     boxes_to_proto_coordinates,
     compose_instance_masks,
@@ -37,8 +37,10 @@ class ChimeraODIS(nn.Module):
         neck_channels: Tuple[int, int, int] = (128, 192, 256),
         head_feat_channels: int = 128,
         mask_weight: float = 1.0,
+        box_decode: str = BOX_DECODE_STRIDE,
     ) -> None:
         super().__init__()
+        self.box_decode = box_decode
         self.num_classes = num_classes
         self.proto_k = proto_k
         self.backbone = ChimeraBackbone(
@@ -197,7 +199,7 @@ class ChimeraODIS(nn.Module):
         flat_box = flatten_prediction_levels(box_levels)
         flat_obj = flatten_prediction_levels(obj_levels)
         flat_mask_coeff = flatten_mask_coefficients(mask_coeff_levels)
-        decoded_boxes = distances_to_boxes(points, flat_box)
+        decoded_boxes = distances_to_boxes(points, flat_box, strides, self.box_decode)
 
         prepared_targets = self._normalize_targets(imgs, targets)
         det_loss_dict = self.detection_loss(
@@ -321,13 +323,13 @@ class ChimeraODIS(nn.Module):
             feature_maps=(n3, n4, n5),
             image_size=(imgs.shape[-2], imgs.shape[-1]),
         )
-        points, _ = concatenate_points_and_strides(points_per_level, strides_per_level)
+        points, strides = concatenate_points_and_strides(points_per_level, strides_per_level)
 
         flat_cls = flatten_prediction_levels(cls_levels)
         flat_box = flatten_prediction_levels(box_levels)
         flat_obj = flatten_prediction_levels(obj_levels)
         flat_mask_coeff = flatten_mask_coefficients(mask_coeff_levels)
-        decoded_boxes = distances_to_boxes(points, flat_box)
+        decoded_boxes = distances_to_boxes(points, flat_box, strides, self.box_decode)
 
         cls_prob = flat_cls.sigmoid()
         obj_prob = flat_obj.sigmoid().squeeze(-1)

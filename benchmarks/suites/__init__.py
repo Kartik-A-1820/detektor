@@ -18,10 +18,11 @@ SUITES: Dict[str, str] = {
     "e2e": "e2e_quality",
     "robustness": "robustness",
     "accuracy": "accuracy",
+    "real": "real_data",
 }
 
 # Suites that need a dataset or are slow; excluded from ``--suites fast``.
-HEAVY = {"e2e", "robustness", "accuracy", "api"}
+HEAVY = {"e2e", "robustness", "accuracy", "api", "real"}
 FAST = [name for name in SUITES if name not in HEAVY]
 
 

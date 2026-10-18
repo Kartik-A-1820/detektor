@@ -3,6 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Dict, Mapping, Optional
 
+from utils.box_ops import BOX_DECODE_PIXELS, BOX_DECODE_STRIDE
+
 from .chimera import ChimeraODIS
 
 
@@ -147,6 +149,9 @@ def resolve_model_config(
         "head_feat_channels": int(cfg.get("head_feat_channels", profile.head_feat_channels)),
         "proto_k": int(cfg.get("proto_k", proto_k if proto_k is not None else profile.proto_k)),
         "num_classes": int(num_classes),
+        # New models predict box distances in stride units; checkpoints written before this option existed
+        # are rebuilt with the legacy pixel decode by build_model_from_checkpoint.
+        "box_decode": str(cfg.get("box_decode", BOX_DECODE_STRIDE)),
     }
     return resolved
 
@@ -162,6 +167,7 @@ def build_model_from_model_config(model_cfg: Mapping[str, Any], *, num_classes: 
         backbone_depths=tuple(resolved["backbone_depths"]),
         neck_channels=tuple(resolved["neck_channels"]),
         head_feat_channels=resolved["head_feat_channels"],
+        box_decode=resolved["box_decode"],
     )
 
 
@@ -173,6 +179,18 @@ def build_model_from_config(cfg: Mapping[str, Any]) -> ChimeraODIS:
     )
 
 
+def _checkpoint_box_decode(checkpoint: Dict[str, Any]) -> str:
+    """Box decode mode a checkpoint was trained with; checkpoints that predate the option used pixels."""
+    if isinstance(checkpoint, dict):
+        model_config = checkpoint.get("model_config")
+        if isinstance(model_config, Mapping) and model_config.get("box_decode"):
+            return str(model_config["box_decode"])
+        config = checkpoint.get("config")
+        if isinstance(config, Mapping) and isinstance(config.get("model"), Mapping) and config["model"].get("box_decode"):
+            return str(config["model"]["box_decode"])
+    return BOX_DECODE_PIXELS
+
+
 def build_model_from_checkpoint(
     checkpoint: Dict[str, Any],
     *,
@@ -180,9 +198,12 @@ def build_model_from_checkpoint(
     proto_k: Optional[int] = None,
 ) -> ChimeraODIS:
     """Instantiate ChimeraODIS from checkpoint metadata when available."""
+    box_decode = _checkpoint_box_decode(checkpoint)
     checkpoint_cfg = checkpoint.get("config") if isinstance(checkpoint, dict) else None
     if isinstance(checkpoint_cfg, Mapping):
-        return build_model_from_config(checkpoint_cfg)
+        patched = dict(checkpoint_cfg)
+        patched["model"] = {**dict(checkpoint_cfg.get("model", {})), "box_decode": box_decode}
+        return build_model_from_config(patched)
 
     checkpoint_model_cfg = checkpoint.get("model_config") if isinstance(checkpoint, dict) else None
     if isinstance(checkpoint_model_cfg, Mapping):
@@ -197,6 +218,7 @@ def build_model_from_checkpoint(
         )
         model_cfg = dict(checkpoint_model_cfg)
         model_cfg["proto_k"] = resolved_proto_k
+        model_cfg["box_decode"] = box_decode
         return build_model_from_model_config(model_cfg, num_classes=resolved_num_classes)
 
     inferred_num_classes = int(num_classes if num_classes is not None else infer_num_classes_from_checkpoint(checkpoint))
@@ -204,6 +226,7 @@ def build_model_from_checkpoint(
     model_cfg = {
         "profile": "quasar",
         "proto_k": inferred_proto_k,
+        "box_decode": box_decode,
     }
     return build_model_from_model_config(model_cfg, num_classes=inferred_num_classes)
 

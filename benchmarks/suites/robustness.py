@@ -12,7 +12,7 @@ import yaml
 
 from api.utils import load_model
 from benchmarks.common import BenchContext
-from utils.metrics_helpers import compute_per_class_ap
+from metrics.coco_eval import coco_evaluate
 
 DESCRIPTION = "mAP50 retention under Gaussian noise, blur, brightness/contrast, JPEG and downscaling"
 
@@ -130,9 +130,7 @@ def run(ctx: BenchContext) -> Dict[str, Any]:
             with torch.no_grad():
                 out = model.predict(tensor, original_sizes=[(size, size)], conf_thresh=0.05, task="detect")[0]
             preds.append({k: out[k].detach().cpu() for k in ("boxes", "scores", "labels")})
-        per_class = compute_per_class_ap(preds, targets, num_classes=nc)
-        gt_classes = {int(c) for t in targets for c in t["labels"].tolist()}
-        map50 = float(np.mean([per_class[c] for c in gt_classes])) if gt_classes else 0.0
+        map50 = float(coco_evaluate(preds, targets, num_classes=nc)["map50"])
         if name == "clean":
             clean_map = map50
         rows.append(
@@ -148,6 +146,6 @@ def run(ctx: BenchContext) -> Dict[str, Any]:
         "weights": str(weights),
         "images": len(images),
         "img_size": size,
-        "note": "mAP50 here is a per-class AP50 mean computed in-process (compute_per_class_ap), not COCO-style.",
+        "note": "mAP50 is COCO-style (pycocotools) at IoU 0.5, computed in-process.",
         "rows": rows,
     }

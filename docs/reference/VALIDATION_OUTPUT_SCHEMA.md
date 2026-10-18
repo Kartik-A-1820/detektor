@@ -96,8 +96,18 @@ Complete validation results in JSON format.
 - `recall`: True positives / (True positives + False negatives)
 - `f1`: Harmonic mean of precision and recall
 - `ap50`: Average Precision at IoU threshold 0.5
-- `map50`: Mean Average Precision across all classes at IoU 0.5
-- `ap50_95`: Average Precision averaged over IoU thresholds 0.5:0.05:0.95 (COCO-style)
+- `map50`: mean Average Precision at IoU 0.5, **COCO-style** (computed with `pycocotools`: pooled over the whole
+  dataset, 101-point interpolated precision)
+- `ap50_95`: AP averaged over IoU thresholds 0.50:0.05:0.95, COCO-style (always computed; the `--compute-ap50-95` flag
+  only additionally fills the legacy field below)
+- `map75`: AP at IoU 0.75
+- `ap_small`, `ap_medium`, `ap_large`: AP by object size (box area < 32², 32²–96², > 96² pixels of the evaluated
+  image; `null` when the dataset has no objects in that bucket)
+- `ar_100`: average recall with up to 100 detections per image
+- `map50_legacy`, `ap50_95_per_image_legacy`: the pre-1.1 figures, kept for continuity. The per-image average skips
+  images without predictions or ground truth and therefore **overstates** AP50-95 (about +6 % in a small test)
+- Per-class entries in `per_class` also carry `ap50_95`; a `coco` block holds the per-class precision–recall curve at
+  IoU 0.5 (101 recall points) for plotting
 - `mean_box_iou`: Average IoU of matched bounding boxes
 - `mean_mask_iou`: Average IoU of matched instance masks
 - `mean_dice`: Average Dice coefficient of matched masks

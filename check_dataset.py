@@ -11,6 +11,7 @@ from typing import List
 
 import yaml
 
+from utils.data_config import load_dataset_yaml, resolve_split_dirs
 from utils.dataset_validation import (
     ValidationIssue,
     ValidationResult,
@@ -313,13 +314,17 @@ def main() -> int:
         print(f"Error: Dataset YAML not found: {data_yaml_path}")
         return 1
 
-    # Load dataset YAML
-    with data_yaml_path.open("r") as f:
-        data_config = yaml.safe_load(f)
+    # Load dataset YAML (normalised: relative paths resolved against the YAML, `path:` honoured,
+    # `nc` inferred from `names` when absent, Roboflow and YOLOv5/v8 layouts supported)
+    try:
+        dataset = load_dataset_yaml(str(data_yaml_path))
+    except yaml.YAMLError as exc:
+        print(f"Error: could not parse dataset YAML: {exc}")
+        return 1
 
-    num_classes = data_config.get("nc")
-    if num_classes is None:
-        print("Error: 'nc' (number of classes) not found in dataset YAML")
+    num_classes = dataset["num_classes"]
+    if not num_classes:
+        print("Error: neither 'nc' nor 'names' found in dataset YAML")
         return 1
 
     print(f"Dataset: {data_yaml_path}")
@@ -328,21 +333,12 @@ def main() -> int:
     # Validate each split
     split_results = []
     for split in args.splits:
-        split_path = data_config.get(split)
-        if not split_path:
+        split_root = dataset.get(split)
+        if not split_root:
             print(f"Warning: '{split}' split not found in dataset YAML, skipping")
             continue
 
-        # Convert images path to split root
-        split_path = Path(split_path)
-        if split_path.name == "images":
-            split_root = split_path.parent
-        else:
-            split_root = split_path
-
-        images_dir = split_root / "images"
-        labels_dir = split_root / "labels"
-
+        images_dir, labels_dir = resolve_split_dirs(split_root)
         result = validate_dataset_split(images_dir, labels_dir, num_classes, split)
         split_results.append(result)
 

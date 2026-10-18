@@ -42,7 +42,7 @@ flowchart LR
 | --- | --- | --- |
 | Backbone | `models/blocks.py` | Conv-BN-SiLU stem, depthwise-separable + CSP-style residual blocks, SPPF-Lite pooling |
 | Neck | `models/neck.py` | Top-down + bottom-up feature fusion at strides 8/16/32 |
-| Head | `models/heads.py` | Anchor-free; per-point class, ltrb box distances, objectness, `K` mask coefficients |
+| Head | `models/heads.py` | Anchor-free; per-point class, ltrb box distances, objectness, `K` mask coefficients. Distances are predicted in **stride units** (`softplus(raw) × stride`, `model.box_decode: stride`); checkpoints from before 1.1 use the legacy pixel decode (`pixels`) and keep working |
 | Masks | `models/heads.py`, `utils/mask_ops.py` | YOLACT-style prototype masks, cropped to the box, upsampled to the image |
 | Loss | `losses/`, `utils/robust_loss.py` | CIoU + BCE (cls/obj) + BCE+Dice (masks); NaN-sanitised, AMP-safe |
 | Post-processing | `utils/postprocess.py` | Top-k pre-NMS, class-aware NMS (pure-torch fallback), box rescaling |

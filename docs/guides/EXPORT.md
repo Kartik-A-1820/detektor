@@ -16,6 +16,8 @@ Compatibility alias:
 python -m scripts.export_onnx --weights runs/chimera/chimera_best.pt
 ```
 
-The exported graph contains the network only (class, box, objectness, mask-coefficient maps and prototypes); decoding,
+The exported graph contains the network only (raw maps: for models with `box_decode: stride` the box channels are
+stride-unit distances — decode with `softplus(raw) * stride`, as `utils.box_ops.distances_to_boxes` does; the export
+result reports the `box_decode` mode) (class, box, objectness, mask-coefficient maps and prototypes); decoding,
 NMS and mask assembly are done by `ChimeraODIS.predict`. On CPU, ONNX Runtime is typically 1.6–3× faster than eager
 PyTorch for the forward pass — see [BENCHMARKS.md](../BENCHMARKS.md).

@@ -48,7 +48,8 @@ Produced by `python -m benchmarks run --suites all --profiles all` — see [Repr
     "api",
     "e2e",
     "robustness",
-    "accuracy"
+    "accuracy",
+    "real"
   ],
   "profiles": [
     "firefly",
@@ -73,7 +74,8 @@ Produced by `python -m benchmarks run --suites all --profiles all` — see [Repr
   "warmup": 5,
   "runs": 30,
   "seed": 0,
-  "quick": false
+  "quick": false,
+  "note": "performance suites (complexity..api) from the 1.1 baseline run; e2e, robustness and real re-run on the final 1.1 code (COCO-style metrics, stride box decoding) on the same machine"
 }
 ```
 
@@ -218,32 +220,34 @@ Profile `firefly`, input 512px, device `cpu`, payload synthetic 1280x720 JPEG, s
 
 ### End-to-end quality (synthetic data)
 
-_Train + validate on a seeded synthetic dataset (pipeline correctness and learning signal)_ — ran in 323.4 s
+_Train + validate on a seeded synthetic dataset (pipeline correctness and learning signal)_ — ran in 678.7 s
 
-Profile `firefly`, 192 train / 48 val synthetic images at 256px, 30 epochs on `cpu` — 317.7 s total (18.13 img/s).
+Profile `firefly`, 192 train / 48 val synthetic images at 256px, 30 epochs on `cpu` — 672.1 s total (8.57 img/s).
 
-| Precision | Recall | F1 | mAP50 | mAP50‑95 | Mean box IoU | Mean mask IoU | Images |
-|---|---|---|---|---|---|---|---|
-| 0.95 | 1.00 | 0.9744 | 1.00 | 0.8678 | 0.9134 | 0.7569 | 48 |
+| Precision | Recall | F1 | mAP50 | mAP75 | mAP50‑95 | Mean box IoU | Mean mask IoU | Images |
+|---|---|---|---|---|---|---|---|---|
+| 0.5938 | 1.00 | 0.7451 | 1.00 | 0.9866 | 0.9517 | 0.9548 | 0.7586 | 48 |
+
+_mAP is COCO‑style (pycocotools): pooled over the dataset with 101‑point interpolation._
 
 ### Robustness to corruptions
 
-_mAP50 retention under Gaussian noise, blur, brightness/contrast, JPEG and downscaling_ — ran in 13.0 s
+_mAP50 retention under Gaussian noise, blur, brightness/contrast, JPEG and downscaling_ — ran in 14.8 s
 
 | Perturbation | mAP50 | Retention vs clean | Mean detections |
 |---|---|---|---|
-| clean | 1.00 | 1.00 | 3.00 |
-| gaussian_noise_s10 | 1.00 | 1.00 | 2.94 |
-| gaussian_noise_s25 | 1.00 | 1.00 | 2.94 |
-| blur_k5 | 1.00 | 1.00 | 2.94 |
-| blur_k9 | 1.00 | 1.00 | 2.98 |
-| brightness_x0.6 | 0.9998 | 0.9998 | 4.00 |
-| brightness_x1.4 | 1.00 | 1.00 | 2.96 |
-| contrast_x0.5 | 0.9998 | 0.9998 | 4.10 |
-| jpeg_q20 | 1.00 | 1.00 | 2.96 |
-| downscale_x0.5 | 1.00 | 1.00 | 2.94 |
+| clean | 1.00 | 1.00 | 4.06 |
+| gaussian_noise_s10 | 1.00 | 1.00 | 4.19 |
+| gaussian_noise_s25 | 1.00 | 1.00 | 4.19 |
+| blur_k5 | 1.00 | 1.00 | 4.12 |
+| blur_k9 | 1.00 | 1.00 | 4.10 |
+| brightness_x0.6 | 1.00 | 1.00 | 4.25 |
+| brightness_x1.4 | 1.00 | 1.00 | 4.31 |
+| contrast_x0.5 | 1.00 | 1.00 | 4.25 |
+| jpeg_q20 | 1.00 | 1.00 | 4.06 |
+| downscale_x0.5 | 1.00 | 1.00 | 4.10 |
 
-_48 images at 256px. mAP50 here is a per-class AP50 mean computed in-process (compute_per_class_ap), not COCO-style._
+_48 images at 256px. mAP50 is COCO-style (pycocotools) at IoU 0.5, computed in-process._
 
 ### Accuracy on user dataset
 
@@ -251,6 +255,24 @@ _Precision/recall/mAP50/mAP50-95/IoU on a dataset split via validate.py (needs -
 
 _Skipped: pass --weights and --data-yaml to enable the accuracy suite_
 
+### Real-data baseline
+
+_Train on a public (or your own) real dataset and report COCO-style mAP, per-class AP and training time_ — ran in 567.9 s
+
+Dataset `african-wildlife` (AGPL-3.0 (as distributed by Ultralytics)), profile `firefly`, 400 train / 225 val images at 320px, 20 epochs on `cpu` — 558.2 s. trained from scratch (no pretrained weights); a short CPU run, so treat as a relative baseline
+
+| Precision | Recall | F1 | mAP50 | mAP75 | mAP50‑95 | Mean box IoU | Mean mask IoU | Images |
+|---|---|---|---|---|---|---|---|---|
+| 0.1809 | 0.504 | 0.2662 | 0.218 | 0.0519 | 0.0912 | 0.7208 | 0 | 225 |
+
+_mAP is COCO‑style (pycocotools): pooled over the dataset with 101‑point interpolation._
+
+| Class | AP50 | Precision | Recall |
+|---|---|---|---|
+| buffalo | 0.2943 | 0.2624 | 0.5955 |
+| elephant | 0.0304 | 0.1667 | 0.0659 |
+| rhino | 0.226 | 0.1739 | 0.6588 |
+| zebra | 0.3214 | 0.1532 | 0.6667 |
 
 ## Suites
 
@@ -265,10 +287,11 @@ _Skipped: pass --weights and --data-yaml to enable the accuracy suite_
 | `onnx` | Export time, ONNX size, numerical parity, ONNX Runtime vs PyTorch latency | CPU provider |
 | `api` | Req/s and p50/p95/p99 vs concurrent clients against a **real in‑process uvicorn server** | Includes auth + the full HTTP/decode/serialise path |
 | `e2e` | Seeded synthetic dataset → real `train.py` → real `validate.py` | Proves the whole pipeline learns; not a real‑world accuracy claim |
+| `real` | **Real photographs**: downloads a public dataset on demand (`python -m benchmarks datasets list`), trains from scratch with the real `train.py`, validates with COCO‑style metrics | The baseline to measure accuracy changes against; `--real-dataset`, `--real-epochs`, `--real-max-train`, or your own `--data-yaml` |
 | `robustness` | mAP50 retention under noise, blur, brightness/contrast, JPEG, downscaling | Uses the `e2e` model or `--weights/--data-yaml` |
-| `accuracy` | P/R/F1/mAP50/mAP50‑95/IoU on **your** dataset via `validate.py` | `--weights` + `--data-yaml` required |
+| `accuracy` | P/R/F1, COCO‑style mAP50 / mAP75 / mAP50‑95, size‑bucketed AP and IoU on **your** dataset via `validate.py` | `--weights` + `--data-yaml` required |
 
-`fast` = every suite except `api`, `e2e`, `robustness`, `accuracy`. `all` = everything.
+`fast` = every suite except `api`, `e2e`, `robustness`, `accuracy`, `real`. `all` = everything (`accuracy` skips itself without `--weights`/`--data-yaml`; `real` downloads its dataset and skips cleanly when offline).
 
 ### Common options
 
@@ -303,6 +326,15 @@ suite, so a crash never loses finished work. A failing suite is recorded (`statu
   reproducible.
 * **Shared hosts are noisy.** Run on an idle machine, pin `--threads`, repeat, and compare *relative* changes on the
   same box. Absolute numbers are only comparable across identical hardware.
+* **Accuracy metrics are COCO‑style.** `validate.py` and the suites use `pycocotools`: detections are pooled over the
+  whole dataset with 101‑point interpolated precision, so numbers are comparable with published results. (Before 1.1 the
+  AP50‑95 was an average of per‑image APs that skipped images without predictions or ground truth; it overstated the
+  score by ~6 % on the synthetic set. The old values remain available as `*_legacy` fields.) Size buckets (small/medium/
+  large = box area < 32², 32²–96², > 96² px) are relative to the evaluated image resolution.
+* **Real‑data baseline:** the public datasets used by the `real` suite are downloaded on demand and checksum‑verified;
+  they are **not** redistributed here. The registry records each dataset's license (the bundled entries are AGPL‑3.0 as
+  distributed by Ultralytics) so you can judge suitability for your own use. Training is from scratch on CPU, so the
+  absolute numbers are modest — the point is a *stable reference* for measuring improvements.
 * **Synthetic quality benchmark:** three shape classes on noisy textured backgrounds, generated from a seed
   (`benchmarks/synthetic.py`). It validates that data loading, loss, optimisation, checkpointing and evaluation work
   together. Scores say nothing about performance on real data.

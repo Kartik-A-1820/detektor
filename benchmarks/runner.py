@@ -15,6 +15,7 @@ from typing import Any, Dict, List
 import torch
 
 from benchmarks import SCHEMA_VERSION
+from benchmarks import datasets as bench_datasets
 from benchmarks.common import ALL_PROFILES, BenchContext, seed_everything
 from benchmarks.env import collect_environment
 from benchmarks.report import compare, render_markdown
@@ -68,6 +69,11 @@ def cmd_run(args: argparse.Namespace) -> int:
     )
     if args.e2e_epochs:
         ctx.extras["e2e_epochs"] = args.e2e_epochs
+    for flag, key in (("real_dataset", "real_dataset"), ("real_epochs", "real_epochs"), ("real_max_train", "real_max_train"),
+                      ("real_img_size", "real_img_size"), ("real_profile", "real_profile")):
+        value = getattr(args, flag)
+        if value:
+            ctx.extras[key] = value
 
     seed_everything(args.seed)
     results: Dict[str, Any] = {
@@ -103,6 +109,23 @@ def cmd_run(args: argparse.Namespace) -> int:
     (out_dir / "report.md").write_text(report, encoding="utf-8")
     print(f"\nResults: {out_dir / 'results.json'}\nReport:  {out_dir / 'report.md'}")
     return 1 if failed else 0
+
+
+def cmd_datasets(args: argparse.Namespace) -> int:
+    if args.action == "list":
+        print("Public datasets for the `real` suite (downloaded on demand into "
+              f"{bench_datasets.cache_dir()}):\n")
+        for spec in bench_datasets.DATASETS.values():
+            print(f"  {spec.name:<17} {spec.size_mb:>6.1f} MB  {spec.description}\n{'':<27}license: {spec.license}")
+        return 0
+    if not args.name:
+        raise SystemExit("error: `datasets fetch` needs a dataset name")
+    try:
+        yaml_path = bench_datasets.fetch(args.name)
+    except KeyError as exc:
+        raise SystemExit(f"error: {exc.args[0]}")
+    print(f"ready: {yaml_path}")
+    return 0
 
 
 def cmd_report(args: argparse.Namespace) -> int:
@@ -150,10 +173,20 @@ def build_parser() -> argparse.ArgumentParser:
     run.add_argument("--weights", default="", help="Checkpoint for the accuracy/robustness suites")
     run.add_argument("--data-yaml", default="", help="Dataset YAML for the accuracy/robustness suites")
     run.add_argument("--e2e-epochs", type=int, default=0, help="Epochs for the synthetic end-to-end suite")
+    run.add_argument("--real-dataset", default="", help=f"Public dataset for the `real` suite ({', '.join(bench_datasets.DATASETS)})")
+    run.add_argument("--real-epochs", type=int, default=0, help="Epochs for the `real` suite (default 20)")
+    run.add_argument("--real-max-train", type=int, default=0, help="Cap training images for the `real` suite (default 400)")
+    run.add_argument("--real-img-size", type=int, default=0, help="Training size for the `real` suite (default 320)")
+    run.add_argument("--real-profile", default="", help="Architecture profile for the `real` suite (default firefly)")
     run.add_argument("--quick", action="store_true", help="Few iterations / small workloads (CI smoke run)")
     run.add_argument("--output-dir", default="runs/benchmarks")
     run.add_argument("--tag", default="", help="Suffix for the output folder name")
     run.set_defaults(func=cmd_run)
+
+    ds = sub.add_parser("datasets", help="List or download public datasets used by the `real` suite")
+    ds.add_argument("action", choices=("list", "fetch"))
+    ds.add_argument("name", nargs="?", default="")
+    ds.set_defaults(func=cmd_datasets)
 
     rep = sub.add_parser("report", help="Render results.json as Markdown")
     rep.add_argument("results")

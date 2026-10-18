@@ -32,7 +32,7 @@ The production-grade validation computes:
 - Precision, Recall, F1 score
 - AP50 (Average Precision at IoU 0.5)
 - mAP50 (Mean AP across all classes)
-- AP50-95 (COCO-style, optional)
+- mAP50, mAP75, AP50-95 and size-bucketed AP (small/medium/large), COCO-style via `pycocotools`
 - Mean box IoU
 - Per-class precision, recall, F1, AP50
 

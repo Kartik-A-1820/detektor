@@ -11,6 +11,7 @@ from __future__ import annotations
 import subprocess
 import sys
 import time
+from pathlib import Path
 from typing import Any, Dict
 
 from benchmarks.common import BenchContext
@@ -21,17 +22,17 @@ from benchmarks.synthetic import CLASS_NAMES, generate_dataset
 DESCRIPTION = "Train + validate on a seeded synthetic dataset (pipeline correctness and learning signal)"
 
 
-def train_synthetic(ctx: BenchContext, workdir, *, profile: str, epochs: int, train_n: int, val_n: int,
-                    img_size: int) -> Dict[str, Any]:
-    data_yaml = generate_dataset(workdir / "data", train=train_n, val=val_n, img_size=img_size, seed=ctx.seed + 1)
-    run_dir = workdir / "run"
+def train_on_yaml(ctx: BenchContext, workdir, *, data_yaml, profile: str, epochs: int, img_size: int,
+                  batch_size: int = 8) -> Dict[str, Any]:
+    """Run the real ``train.py`` on ``data_yaml`` and return the checkpoint path and wall time."""
+    run_dir = Path(workdir) / "run"
     cmd = [
         sys.executable, "train.py",
         "--data-yaml", str(data_yaml),
         "--device", ctx.device,
         "--epochs", str(epochs),
         "--img-size", str(img_size),
-        "--batch-size", "8",
+        "--batch-size", str(batch_size),
         "--model", profile,
         "--out-dir", str(run_dir),
         "--num-workers", "0",
@@ -49,6 +50,12 @@ def train_synthetic(ctx: BenchContext, workdir, *, profile: str, epochs: int, tr
         tail = (proc.stderr or proc.stdout).strip().splitlines()[-5:]
         raise RuntimeError("train.py failed: " + " | ".join(tail))
     return {"data_yaml": data_yaml, "checkpoint": ckpt, "train_wall_s": elapsed, "run_dir": run_dir}
+
+
+def train_synthetic(ctx: BenchContext, workdir, *, profile: str, epochs: int, train_n: int, val_n: int,
+                    img_size: int) -> Dict[str, Any]:
+    data_yaml = generate_dataset(workdir / "data", train=train_n, val=val_n, img_size=img_size, seed=ctx.seed + 1)
+    return train_on_yaml(ctx, workdir, data_yaml=data_yaml, profile=profile, epochs=epochs, img_size=img_size)
 
 
 def run(ctx: BenchContext) -> Dict[str, Any]:

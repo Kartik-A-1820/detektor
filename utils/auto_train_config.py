@@ -11,7 +11,7 @@ import torch
 import yaml
 
 from models.factory import ARCHITECTURE_PROFILES
-from utils.data_config import apply_dataset_yaml_overrides
+from utils.data_config import apply_dataset_yaml_overrides, resolve_split_dirs
 
 DEFAULT_TRAINING_CONFIG: Dict[str, Any] = {
     "device": "auto",
@@ -331,7 +331,7 @@ def _recommend_augmentation(dataset_size: int, task_names: list[str] | None = No
 def _count_split_images(split_root: str | None) -> int:
     if not split_root:
         return 0
-    image_dir = Path(split_root) / "images"
+    image_dir, _ = resolve_split_dirs(split_root)
     if not image_dir.exists():
         return 0
     return sum(1 for path in image_dir.iterdir() if path.is_file())

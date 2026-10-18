@@ -19,6 +19,7 @@ from metrics import (
     smoke_test_detection_metrics,
     smoke_test_segmentation_metrics,
 )
+from metrics.coco_eval import coco_evaluate
 from models.factory import build_model_from_checkpoint, build_model_from_config, load_model_weights
 from utils.benchmark import benchmark_forward, benchmark_predict
 from utils.box_ops import box_iou
@@ -424,9 +425,16 @@ def validate(
             recalls.append(running_tp / max(total_gt, 1))
         ap50 = det_metrics.get("ap50", 0.0)
 
-        per_class_ap = compute_per_class_ap(all_predictions, all_targets, num_classes, iou_thresh)
-        map50 = float(np.mean(list(per_class_ap.values()))) if per_class_ap else 0.0
-        ap50_95 = 0.0
+        # COCO-style evaluation (pycocotools): pooled over the dataset, 101-point interpolation. The older
+        # helpers below are kept as ``*_legacy`` keys for continuity; see metrics/coco_eval.py for why the
+        # per-image average overstates AP50-95.
+        coco = coco_evaluate(all_predictions, all_targets, num_classes)
+        legacy_per_class_ap = compute_per_class_ap(all_predictions, all_targets, num_classes, iou_thresh)
+        legacy_map50 = float(np.mean(list(legacy_per_class_ap.values()))) if legacy_per_class_ap else 0.0
+        per_class_ap = coco["per_class_ap50"]
+        map50 = coco["map50"]
+        ap50_95 = coco["map50_95"]
+        ap50_95_per_image_legacy = None
         if compute_ap50_95_metric:
             ap50_95_values = []
             for prediction, target in zip(all_predictions, all_targets):
@@ -440,7 +448,7 @@ def validate(
                             target["labels"],
                         )
                     )
-            ap50_95 = float(np.mean(ap50_95_values)) if ap50_95_values else 0.0
+            ap50_95_per_image_legacy = float(np.mean(ap50_95_values)) if ap50_95_values else 0.0
 
         sweep_result = threshold_sweep(all_scores, all_tp_flags, total_gt)
         pred_label_tensors = [match["sorted_labels"] for match in all_matches if match["sorted_labels"].numel() > 0]
@@ -471,6 +479,7 @@ def validate(
                     "recall": cls_recall,
                     "f1": cls_f1,
                     "ap50": per_class_ap.get(class_id, 0.0),
+                    "ap50_95": coco["per_class_ap50_95"].get(class_id, 0.0),
                     "tp": per_class_tp[class_id],
                     "fp": per_class_fp[class_id],
                     "fn": per_class_fn[class_id],
@@ -485,6 +494,13 @@ def validate(
                 "ap50": ap50,
                 "map50": map50,
                 "ap50_95": ap50_95,
+                "map75": coco["map75"],
+                "ap_small": coco["ap_small"],
+                "ap_medium": coco["ap_medium"],
+                "ap_large": coco["ap_large"],
+                "ar_100": coco["ar_100"],
+                "map50_legacy": legacy_map50,
+                "ap50_95_per_image_legacy": ap50_95_per_image_legacy,
                 "mean_box_iou": mean_box_iou,
                 "mean_mask_iou": mean_mask_iou,
                 "mean_dice": mean_dice,
@@ -501,6 +517,14 @@ def validate(
                 "precision": precisions,
                 "recall": recalls,
             },
+            "coco": {
+                "recall_thresholds": coco["recall_thresholds"],
+                "precision_at_iou50": {str(k): v for k, v in coco["precision_at_iou50"].items()},
+                "ar_1": coco["ar_1"],
+                "ar_10": coco["ar_10"],
+                "num_gt": coco["num_gt"],
+                "num_detections": coco["num_detections"],
+            },
         }
         summary["comprehensive"] = comprehensive
 
@@ -508,7 +532,7 @@ def validate(
             json.dump(comprehensive, handle, indent=2)
         _save_csv_rows(
             output_path / "per_class_metrics.csv",
-            ["class_id", "class_name", "precision", "recall", "f1", "ap50", "tp", "fp", "fn"],
+            ["class_id", "class_name", "precision", "recall", "f1", "ap50", "ap50_95", "tp", "fp", "fn"],
             per_class_metrics,
         )
         cm_rows = []
@@ -557,8 +581,7 @@ def validate(
         comprehensive_overall = summary["comprehensive"]["overall"]
         print(f"comprehensive_f1: {comprehensive_overall['f1']:.4f}")
         print(f"comprehensive_map50: {comprehensive_overall['map50']:.4f}")
-        if compute_ap50_95_metric:
-            print(f"comprehensive_ap50_95: {comprehensive_overall['ap50_95']:.4f}")
+        print(f"comprehensive_ap50_95: {comprehensive_overall['ap50_95']:.4f}")
         print(f"validation_artifacts: {output_path}")
 
     if total_predictions == 0:

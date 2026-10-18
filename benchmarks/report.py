@@ -111,15 +111,30 @@ def _api(r: Dict[str, Any]) -> str:
 
 def _metrics_block(m: Dict[str, Any]) -> str:
     return _table(
-        ["Precision", "Recall", "F1", "mAP50", "mAP50‑95", "Mean box IoU", "Mean mask IoU", "Images"],
-        [[m["precision"], m["recall"], m["f1"], m["map50"], m["ap50_95"], m["mean_box_iou"], m["mean_mask_iou"], m["num_images"]]],
-    )
+        ["Precision", "Recall", "F1", "mAP50", "mAP75", "mAP50‑95", "Mean box IoU", "Mean mask IoU", "Images"],
+        [[m["precision"], m["recall"], m["f1"], m["map50"], m.get("map75"), m["ap50_95"], m["mean_box_iou"],
+          m["mean_mask_iou"], m["num_images"]]],
+    ) + "\n\n_mAP is COCO‑style (pycocotools): pooled over the dataset with 101‑point interpolation._"
 
 
 def _e2e(r: Dict[str, Any]) -> str:
     head = (f"Profile `{r['profile']}`, {r['train_images']} train / {r['val_images']} val synthetic images at {r['img_size']}px, "
             f"{r['epochs']} epochs on `{r['device']}` — {r['train_wall_s']} s total ({r['train_images_per_s']} img/s).\n\n")
     return head + _metrics_block(r["metrics"])
+
+
+def _real(r: Dict[str, Any]) -> str:
+    if r.get("skipped"):
+        return f"_Skipped: {r['skipped']}_"
+    head = (f"Dataset `{r['dataset']}` ({r.get('dataset_license')}), profile `{r['profile']}`, {r['train_images']} train / "
+            f"{r['val_images']} val images at {r['img_size']}px, {r['epochs']} epochs on `{r['device']}` — "
+            f"{r['train_wall_s']} s. {r.get('note', '')}\n\n")
+    per_class = r["metrics"].get("per_class") or []
+    extra = ""
+    if per_class:
+        extra = "\n\n" + _table(["Class", "AP50", "Precision", "Recall"],
+                                [[c["class"], c["ap50"], c["precision"], c["recall"]] for c in per_class])
+    return head + _metrics_block(r["metrics"]) + extra
 
 
 def _robustness(r: Dict[str, Any]) -> str:
@@ -140,7 +155,7 @@ def _accuracy(r: Dict[str, Any]) -> str:
 RENDERERS: Dict[str, Callable[[Dict[str, Any]], str]] = {
     "complexity": _complexity, "latency": _latency, "throughput": _throughput, "memory": _memory,
     "training": _training, "startup": _startup, "onnx": _onnx, "api": _api, "e2e": _e2e,
-    "robustness": _robustness, "accuracy": _accuracy,
+    "robustness": _robustness, "accuracy": _accuracy, "real": _real,
 }
 
 TITLES = {
@@ -148,6 +163,7 @@ TITLES = {
     "memory": "Memory footprint", "training": "Training throughput", "startup": "Cold start",
     "onnx": "ONNX Runtime vs PyTorch", "api": "HTTP API load test", "e2e": "End-to-end quality (synthetic data)",
     "robustness": "Robustness to corruptions", "accuracy": "Accuracy on user dataset",
+    "real": "Real-data baseline",
 }
 
 
@@ -212,9 +228,10 @@ def flatten_metrics(results: Dict[str, Any]) -> Dict[str, Metric]:
     for x in suites.get("api", {}).get("rows", []):
         put(f"api/c{x['concurrency']}/rps", x.get("rps"), "higher")
         put(f"api/c{x['concurrency']}/p95_ms", _get(x, "latency", "p95_ms"), "lower")
-    for key in ("map50", "ap50_95", "recall", "precision"):
+    for key in ("map50", "ap50_95", "map75", "recall", "precision"):
         put(f"e2e/{key}", _get(suites.get("e2e", {}), "metrics", key), "higher")
         put(f"accuracy/{key}", _get(suites.get("accuracy", {}), "metrics", key), "higher")
+        put(f"real/{key}", _get(suites.get("real", {}), "metrics", key), "higher")
     for x in suites.get("robustness", {}).get("rows", []):
         put(f"robustness/{x['perturbation']}/map50", x.get("map50"), "higher")
     return out

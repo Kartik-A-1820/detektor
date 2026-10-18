@@ -56,6 +56,7 @@ def _extract_model_config(model: nn.Module, config: Dict[str, Any] | None = None
         "head_feat_channels": config_model.get("head_feat_channels", getattr(model.detect_head, "feat_channels", None)),
         "proto_k": config_model.get("proto_k", getattr(model, "proto_k", None)),
         "num_classes": config_data.get("num_classes", getattr(model, "num_classes", None)),
+        "box_decode": config_model.get("box_decode", getattr(model, "box_decode", None)),
     }
     return {key: value for key, value in model_config.items() if value is not None}
 
