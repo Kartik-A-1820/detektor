@@ -1,12 +1,13 @@
 name: Release
 
 # Push a tag like v1.1.0 to publish: tests -> multi-arch container image (GHCR) -> GitHub Release.
-# Run it manually (Actions -> Release -> Run workflow) for a dry run: it runs every check and builds
-# every image but never pushes or releases anything (only tag pushes publish).
+# Dry run: push (or force-push) the branch `release-dry-run` - or use Actions -> Release -> Run workflow.
+# It runs every check and builds every image but never pushes or releases anything (only tags publish).
 
 on:
   push:
     tags: ["v[0-9]+.[0-9]+.[0-9]+"]
+    branches: [release-dry-run]
   workflow_dispatch:
 
 permissions:
