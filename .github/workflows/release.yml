@@ -39,7 +39,7 @@ jobs:
           if [ "${GITHUB_REF_TYPE}" != "tag" ]; then TAG="v${VERSION}"; fi   # dry run from a branch
           python scripts/release_notes.py --tag "$TAG" --out release-notes.md
           cat release-notes.md
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: release-notes
           path: release-notes.md
