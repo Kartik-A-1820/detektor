@@ -71,7 +71,7 @@ serving never needs the original config:
 `models/factory.py::build_model_from_checkpoint` treats embedded metadata as authoritative, falling back to shape
 inference for bare state dicts.
 
-> **Trust boundary:** checkpoints are pickles. Only load files you produced or trust — see [SECURITY.md](../SECURITY.md).
+> **Trust boundary:** checkpoints are pickles, loaded with `weights_only=True` (`utils/checkpoints.py::safe_torch_load`). Still only load files you produced or trust — see [SECURITY.md](../SECURITY.md).
 
 ## Serving layer
 

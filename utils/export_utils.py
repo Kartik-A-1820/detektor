@@ -7,6 +7,7 @@ import yaml
 from torch import Tensor
 
 from models.chimera import ChimeraODIS
+from utils.checkpoints import safe_torch_load
 
 EXPORT_INPUT_NAME = "images"
 EXPORT_OUTPUT_NAMES = ["cls_flat", "box_flat", "obj_flat", "mask_coeff_flat", "proto"]
@@ -37,7 +38,7 @@ def build_model_from_config(cfg: Dict[str, Any], device: torch.device) -> Chimer
 
 def load_model_weights(model: ChimeraODIS, weights_path: str, device: torch.device) -> None:
     """Load either a raw state dict or checkpoint payload into the model."""
-    checkpoint = torch.load(weights_path, map_location=device)
+    checkpoint = safe_torch_load(weights_path, map_location=device)
     if isinstance(checkpoint, dict) and "model_state" in checkpoint:
         model.load_state_dict(checkpoint["model_state"], strict=True)
     else:

@@ -194,6 +194,7 @@ class DetektorUIRuntime:
         iou_thresh: float,
         max_det: int,
         include_masks: bool,
+        agnostic_nms: bool = False,
         progress: gr.Progress = gr.Progress(),
     ) -> Tuple[str, Any, List[List[Any]], Dict[str, Any], Optional[str]]:
         image_paths = _collect_image_paths(image_files, folder_path)
@@ -223,6 +224,7 @@ class DetektorUIRuntime:
                 iou_thresh=iou_thresh,
                 max_det=int(max_det),
                 include_masks=include_masks,
+                agnostic_nms=bool(agnostic_nms),
             )
             model_ms += latency
             for path, original, prediction in zip(batch_paths, originals, predictions):
@@ -240,7 +242,8 @@ class DetektorUIRuntime:
         wall_ms = (time.perf_counter() - started) * 1000.0
         payload = {
             "checkpoint": state.get("active_checkpoint_key"),
-            "settings": {"conf_thresh": conf_thresh, "iou_thresh": iou_thresh, "max_det": int(max_det), "masks": include_masks},
+            "settings": {"conf_thresh": conf_thresh, "iou_thresh": iou_thresh, "max_det": int(max_det), "masks": include_masks,
+                         "agnostic_nms": bool(agnostic_nms)},
             "images": len(image_paths),
             "total_detections": total_dets,
             "model_ms": round(model_ms, 2),
@@ -351,7 +354,7 @@ def _parse_class_map(text: str) -> Dict[str, str]:
     return {str(k): str(v) for k, v in payload.items()} if isinstance(payload, dict) else {}
 
 
-def run_single_inference(image, backend_url, api_key, conf_thresh, iou_thresh, max_det, include_masks, class_map_text):
+def run_single_inference(image, backend_url, api_key, conf_thresh, iou_thresh, max_det, include_masks, agnostic_nms, class_map_text):
     if image is None:
         gr.Warning("Upload an image first.")
         return None, [], {}, _EMPTY_RESULTS
@@ -361,7 +364,8 @@ def run_single_inference(image, backend_url, api_key, conf_thresh, iou_thresh, m
         resp = _post_json_multipart(
             f"{(backend_url or DEFAULT_BACKEND_URL).strip().rstrip('/')}/v1/predict",
             [("image", "upload.png", _png_bytes(image), "image/png")],
-            {"conf_thresh": conf_thresh, "iou_thresh": iou_thresh, "max_det": int(max_det), "include_masks": include_masks},
+            {"conf_thresh": conf_thresh, "iou_thresh": iou_thresh, "max_det": int(max_det), "include_masks": include_masks,
+             "agnostic_nms": bool(agnostic_nms)},
             timeout=60,
             api_key=api_key or "",
         )
@@ -375,7 +379,7 @@ def run_single_inference(image, backend_url, api_key, conf_thresh, iou_thresh, m
     return annotate_image(image, dets, include_masks, class_map), rows, resp, summary
 
 
-def run_batch_inference(files, backend_url, api_key, conf_thresh, iou_thresh, max_det, include_masks, class_map_text):
+def run_batch_inference(files, backend_url, api_key, conf_thresh, iou_thresh, max_det, include_masks, agnostic_nms, class_map_text):
     paths = _normalize_file_inputs(files)
     if not paths:
         gr.Warning("Upload at least one image first.")
@@ -387,7 +391,8 @@ def run_batch_inference(files, backend_url, api_key, conf_thresh, iou_thresh, ma
         resp = _post_json_multipart(
             f"{(backend_url or DEFAULT_BACKEND_URL).strip().rstrip('/')}/v1/predict_batch",
             [("images", p.name, _png_bytes(img), "image/png") for p, img in zip(paths, images)],
-            {"conf_thresh": conf_thresh, "iou_thresh": iou_thresh, "max_det": int(max_det), "include_masks": include_masks},
+            {"conf_thresh": conf_thresh, "iou_thresh": iou_thresh, "max_det": int(max_det), "include_masks": include_masks,
+             "agnostic_nms": bool(agnostic_nms)},
             timeout=120,
             api_key=api_key or "",
         )
@@ -408,8 +413,8 @@ def run_batch_inference(files, backend_url, api_key, conf_thresh, iou_thresh, ma
 # Interface construction
 # ---------------------------------------------------------------------------
 
-def _settings_block() -> Tuple[Any, Any, Any, Any, Any]:
-    """Shared detection-settings controls; returns (preset, conf, iou, max_det, masks)."""
+def _settings_block() -> Tuple[Any, Any, Any, Any, Any, Any]:
+    """Shared detection-settings controls; returns (preset, conf, iou, max_det, masks, agnostic)."""
     preset = gr.Radio(list(PRESETS), value="Balanced", label="Preset", info="Quick starting points; fine-tune below.")
     with gr.Row():
         conf = gr.Slider(0.01, 0.95, value=0.25, step=0.01, label="Confidence", info="Higher = fewer, surer boxes")
@@ -417,12 +422,14 @@ def _settings_block() -> Tuple[Any, Any, Any, Any, Any]:
     with gr.Row():
         max_det = gr.Slider(1, 300, value=100, step=1, label="Max detections")
         masks = gr.Checkbox(value=False, label="Draw segmentation masks")
+    agnostic = gr.Checkbox(value=False, label="Class-agnostic NMS",
+                           info="Merge overlapping boxes even when they have different classes")
 
     def apply_preset(name: str) -> Tuple[float, float]:
         return PRESETS.get(name, PRESETS["Balanced"])
 
     preset.change(apply_preset, inputs=preset, outputs=[conf, iou])
-    return preset, conf, iou, max_det, masks
+    return preset, conf, iou, max_det, masks, agnostic
 
 
 def _footer() -> gr.HTML:
@@ -474,7 +481,7 @@ def build_interface(runtime: Optional[DetektorUIRuntime] = None) -> gr.Blocks:
                         upload = gr.Files(label="Images", file_count="multiple", type="filepath",
                                           file_types=sorted(IMAGE_EXTENSIONS), height=190)
                         with gr.Accordion("Detection settings", open=True):
-                            _, conf, iou, max_det, masks = _settings_block()
+                            _, conf, iou, max_det, masks, agnostic = _settings_block()
                         with gr.Accordion("Run on a server folder", open=False):
                             folder = gr.Textbox(label="Folder path", placeholder="/data/images",
                                                 info="Every image under this folder (recursive) is processed.")
@@ -550,7 +557,7 @@ def build_interface(runtime: Optional[DetektorUIRuntime] = None) -> gr.Blocks:
         selector.change(runtime.set_checkpoint, inputs=[selector], outputs=dashboard, show_progress="minimal")
         run_btn.click(
             runtime.run_inference,
-            inputs=[upload, folder, conf, iou, max_det, masks],
+            inputs=[upload, folder, conf, iou, max_det, masks, agnostic],
             outputs=[results_summary, gallery, table, payload, download],
         )
         clear_btn.click(
@@ -573,7 +580,7 @@ def _build_remote_interface() -> gr.Blocks:
             class_map = gr.Textbox(label="Class map (JSON)", placeholder='{"0": "person", "1": "car"}',
                                    info="Optional: show names instead of class ids")
         with gr.Accordion("Detection settings", open=False):
-            _, conf, iou, max_det, masks = _settings_block()
+            _, conf, iou, max_det, masks, agnostic = _settings_block()
 
         with gr.Tabs():
             with gr.Tab("🖼️  Single image"):
@@ -588,7 +595,7 @@ def _build_remote_interface() -> gr.Blocks:
                             one_table = gr.Dataframe(headers=["#", "Class", "Score"], interactive=False)
                             one_json = gr.JSON(label="Response", open=False)
                 run_one.click(run_single_inference,
-                              inputs=[image_in, backend, api_key, conf, iou, max_det, masks, class_map],
+                              inputs=[image_in, backend, api_key, conf, iou, max_det, masks, agnostic, class_map],
                               outputs=[image_out, one_table, one_json, one_summary])
             with gr.Tab("🗂️  Batch"):
                 with gr.Row(equal_height=False):
@@ -602,7 +609,7 @@ def _build_remote_interface() -> gr.Blocks:
                                                   show_label=False)
                         many_json = gr.JSON(label="Response", open=False)
                 run_many.click(run_batch_inference,
-                               inputs=[files_in, backend, api_key, conf, iou, max_det, masks, class_map],
+                               inputs=[files_in, backend, api_key, conf, iou, max_det, masks, agnostic, class_map],
                                outputs=[many_gallery, many_json, many_summary])
         _footer()
     demo.queue(default_concurrency_limit=1)

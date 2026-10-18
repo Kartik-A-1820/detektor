@@ -4,6 +4,11 @@ updates:
     directory: "/"
     schedule: { interval: weekly }
     open-pull-requests-limit: 5
+    ignore:
+      # torch/torchvision are lower bounds for users' own (CPU/CUDA) installs; bumping them would
+      # needlessly exclude working environments. CI tests the latest releases anyway.
+      - dependency-name: "torch"
+      - dependency-name: "torchvision"
   - package-ecosystem: github-actions
     directory: "/"
     schedule: { interval: weekly }

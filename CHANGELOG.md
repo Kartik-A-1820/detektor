@@ -3,9 +3,13 @@
 All notable changes to Detektor are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/)
 and the project aims to follow [Semantic Versioning](https://semver.org/).
 
-## [1.1.0] - Production hardening release
+## [1.1.0] - 2026-10-18 - Production hardening release
 
 ### Added
+- **Class-agnostic NMS** (`agnostic_nms` query parameter, `--agnostic-nms` / `DETEKTOR_AGNOSTIC_NMS`, console checkbox,
+  `infer.py --agnostic-nms`): overlapping boxes suppress each other regardless of class.
+- **Safe checkpoint loading:** every `torch.load` now uses `weights_only=True` via `safe_torch_load`; files needing full
+  unpickling are refused unless `DETEKTOR_ALLOW_UNSAFE_PICKLE=1`.
 - **Benchmark framework** (`python -m benchmarks`): eleven suites — complexity, latency (with decode/forward/postprocess
   breakdown), batch throughput, memory, training throughput, cold start, ONNX Runtime vs PyTorch, HTTP API load test,
   synthetic end-to-end train+validate, robustness to image corruptions, and accuracy on user data — plus a Markdown
@@ -24,6 +28,8 @@ and the project aims to follow [Semantic Versioning](https://semver.org/).
   Dependabot, pre-commit, Makefile, `pyproject.toml` tooling config, code of conduct.
 
 ### Changed
+- Uploaded images are decoded **once** (validation hands the decoded image to inference) and the unused full-resolution
+  RGB copy is no longer produced on the serving path.
 - **Performance:** the inference service skips mask composition and full-resolution resizing unless `include_masks` is
   requested (the default is off). On a 1280×720 image with 100 detections this cuts post-processing from ~230 ms to
   ~25 ms (see `benchmarks/results/`).
@@ -34,7 +40,7 @@ and the project aims to follow [Semantic Versioning](https://semver.org/).
   decoding. Explicitly wrong types are still rejected.
 - The UI console binds to `127.0.0.1` by default (was `0.0.0.0`) and the in-process UI may only serve files from the run
   directory (previously the whole working directory).
-- `requirements.txt` now pins sensible lower bounds and `gradio>=4.44,<7`; added `pillow`, `pandas`, `psutil`.
+- `requirements.txt` now pins sensible lower bounds and `gradio>=5.50,<7` (4.x and early 5.x do not import with current `huggingface_hub`; 5.50 and 6.x are tested in CI); added `pillow`, `pandas`, `psutil`.
 - Python source cleaned with `ruff` (whitespace, import order, unused names).
 
 ### Fixed

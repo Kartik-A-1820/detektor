@@ -21,7 +21,8 @@ Every `serve.py` option can be set by CLI flag **or** environment variable (flag
 | `--max-det` | `DETEKTOR_MAX_DET` | `100` | Max detections per image |
 | `--topk-pre-nms` | `DETEKTOR_TOPK_PRE_NMS` | `300` | Candidates kept before NMS |
 | `--mask-thresh` | `DETEKTOR_MASK_THRESH` | `0.5` | Mask binarisation threshold |
-| `--include-masks` | `DETEKTOR_INCLUDE_MASKS` | `false` | Return base64 PNG masks by default |
+| `--include-masks` | `DETEKTOR_INCLUDE_MASKS` | `false` | Return base64 PNG masks by default (masks are only computed when requested) |
+| `--agnostic-nms` | `DETEKTOR_AGNOSTIC_NMS` | `false` | Suppress overlapping boxes across classes by default (per-request `agnostic_nms` overrides) |
 
 ## Server
 

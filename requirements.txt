@@ -19,8 +19,9 @@ uvicorn>=0.27
 python-multipart
 pydantic>=2.0
 
-# UI (Gradio 4.44 - 6.x supported; styling adapts to the installed major version)
-gradio>=4.44,<7
+# UI. Gradio 5.50+ and 6.x are tested in CI (styling adapts to the major version). Gradio 4.x and
+# early 5.x do not import with current huggingface_hub, so they are not supported.
+gradio>=5.50,<7
 
 # Optional acceleration / export
 onnxruntime>=1.16

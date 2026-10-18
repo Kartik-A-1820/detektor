@@ -29,7 +29,6 @@ known-first-party = ["api", "benchmarks", "datasets", "engine", "losses", "metri
 testpaths = ["tests"]
 filterwarnings = [
     "ignore:Using `httpx` with `starlette.testclient` is deprecated:DeprecationWarning",
-    "ignore::starlette.exceptions.StarletteDeprecationWarning",
 ]
 
 [tool.black]

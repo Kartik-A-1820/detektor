@@ -109,6 +109,46 @@ class ProductionAPITests(unittest.TestCase):
         tasks = [call.get("task") for call in model.calls]
         self.assertEqual(tasks, ["detect", "segment", "detect", "segment"])
 
+    def test_agnostic_nms_flag_propagates(self) -> None:
+        model = DummyModel()
+        get_metrics_store().reset()
+        files = {"image": ("test.png", self.image_bytes, "image/png")}
+        batch = [("images", ("a.png", self.image_bytes, "image/png"))]
+        with patch("serve.load_model", return_value=(model, torch.device("cpu"))):
+            with TestClient(create_app(ServiceConfig(weights="dummy.pt", enable_warmup=False))) as client:
+                client.post("/v1/predict", files=files)
+                client.post("/v1/predict?agnostic_nms=true", files=files)
+                client.post("/v1/predict_batch?agnostic_nms=true", files=batch)
+        self.assertEqual([c.get("agnostic_nms") for c in model.calls], [False, True, True])
+
+        model = DummyModel()
+        with patch("serve.load_model", return_value=(model, torch.device("cpu"))):
+            config = ServiceConfig(weights="dummy.pt", enable_warmup=False, agnostic_nms=True)
+            with TestClient(create_app(config)) as client:
+                client.post("/v1/predict", files=files)  # server-wide default applies
+                client.post("/v1/predict?agnostic_nms=false", files=files)  # request can override it
+        self.assertEqual([c.get("agnostic_nms") for c in model.calls], [True, False])
+
+    def test_each_uploaded_image_is_decoded_exactly_once(self) -> None:
+        import cv2
+
+        real = cv2.imdecode
+        calls = []
+
+        def counting(*args, **kwargs):
+            calls.append(1)
+            return real(*args, **kwargs)
+
+        files = {"image": ("test.png", self.image_bytes, "image/png")}
+        batch = [("images", (f"{i}.png", self.image_bytes, "image/png")) for i in range(3)]
+        with self._test_client() as client:
+            with patch("cv2.imdecode", side_effect=counting):
+                self.assertEqual(client.post("/v1/predict", files=files).status_code, 200)
+                self.assertEqual(len(calls), 1)
+                calls.clear()
+                self.assertEqual(client.post("/v1/predict_batch", files=batch).status_code, 200)
+                self.assertEqual(len(calls), 3)
+
     def test_service_image_size_resolution(self) -> None:
         """Explicit --img-size wins; otherwise the checkpoint's training size; otherwise 512."""
         from serve import MODEL_STORE

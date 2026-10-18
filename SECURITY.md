@@ -25,11 +25,16 @@ Detektor is designed for single-machine and small-team deployments. The defaults
 | Upload limits | 10 MB/image, 16 images/batch, 8192² px | Lower them to what your workload needs |
 | Container | non-root (uid 10001), read-only FS, no capabilities (compose) | Keep these settings |
 
-### Model files are code
+### Model files
 
-Checkpoints (`.pt`) are Python pickles and can execute arbitrary code when loaded. **Never load a checkpoint from an
-untrusted source.** Serve only artifacts you trained or verified; mount them read-only. If you distribute models,
-publish a checksum (`scripts/package_model.py` records one in the artifact manifest).
+Checkpoints (`.pt`) are PyTorch pickles. Detektor loads them with `torch.load(..., weights_only=True)` everywhere
+(training, validation, inference, export, serving and the console), which restricts unpickling to tensors and plain
+containers, so a malicious file cannot execute code through the loader. A file that needs full unpickling is refused with
+an explanatory error; for a *trusted* legacy file you can opt in with `DETEKTOR_ALLOW_UNSAFE_PICKLE=1` (then re-save it).
+
+Even so, treat checkpoints as untrusted input: serve only artifacts you trained or verified, mount them read-only, and
+verify the SHA-256 recorded in `package_manifest.json` (`scripts/package_model.py` writes it). Other libraries that read
+the same file may not be as careful.
 
 ### Input handling
 

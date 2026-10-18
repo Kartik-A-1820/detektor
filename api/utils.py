@@ -15,6 +15,7 @@ from models.factory import (
     infer_num_classes_from_checkpoint,
     load_model_weights,
 )
+from utils.checkpoints import safe_torch_load
 from utils.visualize import draw_boxes
 
 
@@ -40,7 +41,7 @@ def load_model(
 ) -> Tuple[ChimeraODIS, torch.device]:
     """Load a ChimeraODIS model once for service or CLI inference."""
     device = resolve_device(device_name)
-    checkpoint = torch.load(weights, map_location=device)
+    checkpoint = safe_torch_load(weights, map_location=device)
 
     if num_classes is None:
         num_classes = _detect_num_classes(checkpoint)
@@ -53,18 +54,31 @@ def load_model(
     return model, device
 
 
+def preprocess_image_array(
+    image_bgr: np.ndarray,
+    image_size: int = 512,
+    return_original: bool = True,
+) -> Tuple[Tensor, Optional[np.ndarray], Tuple[int, int]]:
+    """Prepare a model input tensor from an already-decoded BGR image.
+
+    ``return_original=False`` skips the full-resolution RGB copy (``None`` is returned in its place),
+    which inference-only callers never use.
+    """
+    original_height, original_width = image_bgr.shape[:2]
+    resized_bgr = cv2.resize(image_bgr, (image_size, image_size))
+    image_rgb = cv2.cvtColor(resized_bgr, cv2.COLOR_BGR2RGB)
+    image_tensor = torch.from_numpy(image_rgb.transpose(2, 0, 1)).float() / 255.0
+    original_rgb = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2RGB) if return_original else None
+    return image_tensor.unsqueeze(0), original_rgb, (original_height, original_width)
+
+
 def preprocess_image_bytes(image_bytes: bytes, image_size: int = 512) -> Tuple[Tensor, np.ndarray, Tuple[int, int]]:
     """Decode uploaded image bytes and prepare a model input tensor."""
     np_bytes = np.frombuffer(image_bytes, dtype=np.uint8)
     image_bgr = cv2.imdecode(np_bytes, cv2.IMREAD_COLOR)
     if image_bgr is None:
         raise ValueError("Could not decode uploaded image")
-
-    original_height, original_width = image_bgr.shape[:2]
-    resized_bgr = cv2.resize(image_bgr, (image_size, image_size))
-    image_rgb = cv2.cvtColor(resized_bgr, cv2.COLOR_BGR2RGB)
-    image_tensor = torch.from_numpy(image_rgb.transpose(2, 0, 1)).float() / 255.0
-    return image_tensor.unsqueeze(0), cv2.cvtColor(image_bgr, cv2.COLOR_BGR2RGB), (original_height, original_width)
+    return preprocess_image_array(image_bgr, image_size)
 
 
 def encode_mask_to_base64_png(mask: Tensor) -> str:

@@ -6,6 +6,7 @@ from typing import Any, Dict, Optional
 import torch
 
 from models.factory import build_model_from_checkpoint, checkpoint_train_img_size, load_model_weights
+from utils.checkpoints import safe_torch_load
 from utils.export_utils import (
     create_dummy_input,
     get_dynamic_axes,
@@ -47,7 +48,7 @@ def export_onnx(
     defaults to the size the checkpoint was trained at.
     """
     device = resolve_device(device_name)
-    checkpoint = torch.load(weights, map_location=device)
+    checkpoint = safe_torch_load(weights, map_location=device)
     model = build_model_from_checkpoint(checkpoint).to(device)
     load_model_weights(model, checkpoint)
     model.eval()

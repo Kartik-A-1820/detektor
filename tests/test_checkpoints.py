@@ -124,3 +124,65 @@ class TestTrainImageSize(unittest.TestCase):
             torch.save({"model_state": model.state_dict(), "model_config": cfg}, bare)
             self.assertEqual(load_model(str(with_cfg), device_name="cpu")[0].train_img_size, 288)
             self.assertIsNone(load_model(str(bare), device_name="cpu")[0].train_img_size)
+
+
+class _Unsafe:
+    """A non-tensor object: loading it requires full pickle support."""
+
+    def __init__(self) -> None:
+        self.payload = 1
+
+
+class TestSafeCheckpointLoading(unittest.TestCase):
+    def test_plain_checkpoint_loads_in_weights_only_mode(self) -> None:
+        import tempfile
+
+        from utils.checkpoints import safe_torch_load
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "ok.pt"
+            torch.save({"model_state": {"w": torch.ones(2)}, "epoch": 3, "config": {"train": {"img_size": 64}}}, path)
+            loaded = safe_torch_load(path)
+        self.assertEqual(loaded["epoch"], 3)
+        self.assertTrue(torch.equal(loaded["model_state"]["w"], torch.ones(2)))
+
+    def test_arbitrary_objects_are_refused_with_guidance(self) -> None:
+        import tempfile
+
+        from utils.checkpoints import UNSAFE_PICKLE_ENV, CheckpointLoadError, safe_torch_load
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "evil.pt"
+            torch.save({"obj": _Unsafe()}, path)
+            with self.assertRaises(CheckpointLoadError) as ctx:
+                safe_torch_load(path)
+            self.assertIn(UNSAFE_PICKLE_ENV, str(ctx.exception))
+
+    def test_explicit_opt_in_allows_trusted_legacy_files(self) -> None:
+        import os
+        import tempfile
+        import warnings
+        from unittest import mock
+
+        from utils.checkpoints import UNSAFE_PICKLE_ENV, safe_torch_load
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "legacy.pt"
+            torch.save({"obj": _Unsafe()}, path)
+            with mock.patch.dict(os.environ, {UNSAFE_PICKLE_ENV: "1"}), warnings.catch_warnings(record=True) as caught:
+                warnings.simplefilter("always")
+                loaded = safe_torch_load(path)
+        self.assertEqual(loaded["obj"].payload, 1)
+        self.assertTrue(any(UNSAFE_PICKLE_ENV in str(w.message) for w in caught))
+
+    def test_load_model_uses_safe_loading(self) -> None:
+        import tempfile
+
+        from api.utils import load_model
+        from utils.checkpoints import CheckpointLoadError
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "evil.pt"
+            torch.save({"model_state": {}, "obj": _Unsafe()}, path)
+            with self.assertRaises(CheckpointLoadError):
+                load_model(str(path), device_name="cpu")

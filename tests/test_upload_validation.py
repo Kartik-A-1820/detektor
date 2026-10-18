@@ -14,6 +14,7 @@ from api.validation import (
     MAX_PIXELS,
     ImageValidationError,
     peek_image_size,
+    validate_and_decode_image,
     validate_mime_type,
     validate_uploaded_image,
 )
@@ -67,6 +68,13 @@ class UploadedImageTests(unittest.TestCase):
     def test_too_small_rejected(self) -> None:
         with self.assertRaises(ImageValidationError):
             validate_uploaded_image(_png(8, 8), "image/png")
+
+    def test_validate_and_decode_returns_the_bgr_image(self) -> None:
+        image = validate_and_decode_image(_png(64, 48), "image/png")
+        self.assertEqual(image.shape, (48, 64, 3))
+        self.assertEqual(image.dtype, np.uint8)
+        with self.assertRaises(ImageValidationError):
+            validate_and_decode_image(b"nope", "image/png")
 
     def test_peek_reads_header_only(self) -> None:
         self.assertEqual(peek_image_size(_png(30, 20)), (30, 20))

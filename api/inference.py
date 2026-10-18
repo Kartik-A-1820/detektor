@@ -4,11 +4,12 @@ from __future__ import annotations
 
 from typing import Dict, List, Optional, Tuple
 
+import numpy as np
 import torch
 from torch import Tensor
 
 from api.logging_utils import RequestTimer
-from api.utils import encode_mask_to_base64_png, preprocess_image_bytes
+from api.utils import encode_mask_to_base64_png, preprocess_image_array, preprocess_image_bytes
 from models.chimera import ChimeraODIS
 
 
@@ -26,6 +27,7 @@ class InferenceService:
         default_topk_pre_nms: int = 300,
         default_mask_thresh: float = 0.5,
         default_include_masks: bool = False,
+        default_agnostic_nms: bool = False,
     ) -> None:
         """Initialize the inference service.
 
@@ -39,6 +41,7 @@ class InferenceService:
             default_topk_pre_nms: Default top-k before NMS
             default_mask_thresh: Default mask threshold
             default_include_masks: Default include masks flag
+            default_agnostic_nms: Default for class-agnostic NMS
         """
         self.model = model
         self.device = device
@@ -49,7 +52,14 @@ class InferenceService:
         self.default_topk_pre_nms = default_topk_pre_nms
         self.default_mask_thresh = default_mask_thresh
         self.default_include_masks = default_include_masks
+        self.default_agnostic_nms = default_agnostic_nms
         self.num_classes = model.num_classes
+
+    def _preprocess(self, image_bytes: bytes, decoded: Optional[np.ndarray]):
+        """Preprocess from a pre-decoded image when available, else decode the bytes."""
+        if decoded is not None:
+            return preprocess_image_array(decoded, self.image_size, return_original=False)
+        return preprocess_image_bytes(image_bytes, self.image_size)
 
     @staticmethod
     def _task_for(include_masks: bool) -> str:
@@ -88,6 +98,8 @@ class InferenceService:
         iou_thresh: Optional[float] = None,
         max_det: Optional[int] = None,
         include_masks: Optional[bool] = None,
+        agnostic_nms: Optional[bool] = None,
+        decoded_image: Optional[np.ndarray] = None,
     ) -> Tuple[Dict[str, object], float]:
         """Run inference on a single image.
 
@@ -97,6 +109,8 @@ class InferenceService:
             iou_thresh: IoU threshold (uses default if None)
             max_det: Max detections (uses default if None)
             include_masks: Include masks flag (uses default if None)
+            agnostic_nms: Class-agnostic NMS flag (uses default if None)
+            decoded_image: Optional already-decoded BGR image; skips decoding ``image_bytes`` again
 
         Returns:
             Tuple of (prediction dict, inference_time_ms)
@@ -106,9 +120,10 @@ class InferenceService:
         iou_thresh = iou_thresh if iou_thresh is not None else self.default_iou_thresh
         max_det = max_det if max_det is not None else self.default_max_det
         include_masks = include_masks if include_masks is not None else self.default_include_masks
+        agnostic_nms = agnostic_nms if agnostic_nms is not None else self.default_agnostic_nms
 
         # Preprocess image
-        image_tensor, _, original_size = preprocess_image_bytes(image_bytes, self.image_size)
+        image_tensor, _, original_size = self._preprocess(image_bytes, decoded_image)
         image_tensor = image_tensor.to(self.device)
 
         # Run inference with timing
@@ -123,6 +138,7 @@ class InferenceService:
                     max_det=max_det,
                     mask_thresh=self.default_mask_thresh,
                     task=self._task_for(include_masks),
+                    agnostic_nms=agnostic_nms,
                 )[0]
 
         inference_time_ms = timer.duration_ms
@@ -144,6 +160,8 @@ class InferenceService:
         iou_thresh: Optional[float] = None,
         max_det: Optional[int] = None,
         include_masks: Optional[bool] = None,
+        agnostic_nms: Optional[bool] = None,
+        decoded_images: Optional[List[np.ndarray]] = None,
     ) -> Tuple[List[Dict[str, object]], float]:
         """Run inference on a batch of images.
 
@@ -153,6 +171,8 @@ class InferenceService:
             iou_thresh: IoU threshold (uses default if None)
             max_det: Max detections (uses default if None)
             include_masks: Include masks flag (uses default if None)
+            agnostic_nms: Class-agnostic NMS flag (uses default if None)
+            decoded_images: Optional already-decoded BGR images (same order); skips re-decoding
 
         Returns:
             Tuple of (list of prediction dicts, total_inference_time_ms)
@@ -162,13 +182,15 @@ class InferenceService:
         iou_thresh = iou_thresh if iou_thresh is not None else self.default_iou_thresh
         max_det = max_det if max_det is not None else self.default_max_det
         include_masks = include_masks if include_masks is not None else self.default_include_masks
+        agnostic_nms = agnostic_nms if agnostic_nms is not None else self.default_agnostic_nms
 
         # Preprocess all images
         tensors = []
         original_sizes = []
 
-        for img_bytes in images_bytes:
-            tensor, _, orig_size = preprocess_image_bytes(img_bytes, self.image_size)
+        for index, img_bytes in enumerate(images_bytes):
+            decoded = decoded_images[index] if decoded_images is not None else None
+            tensor, _, orig_size = self._preprocess(img_bytes, decoded)
             tensors.append(tensor)
             original_sizes.append(orig_size)
 
@@ -187,6 +209,7 @@ class InferenceService:
                     max_det=max_det,
                     mask_thresh=self.default_mask_thresh,
                     task=self._task_for(include_masks),
+                    agnostic_nms=agnostic_nms,
                 )
 
         total_inference_time_ms = timer.duration_ms

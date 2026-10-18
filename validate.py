@@ -22,6 +22,7 @@ from metrics import (
 from models.factory import build_model_from_checkpoint, build_model_from_config, load_model_weights
 from utils.benchmark import benchmark_forward, benchmark_predict
 from utils.box_ops import box_iou
+from utils.checkpoints import safe_torch_load
 from utils.collate import detection_segmentation_collate_fn
 from utils.data_config import apply_dataset_yaml_overrides, print_resolved_dataset_config
 from utils.metrics_helpers import (
@@ -221,7 +222,7 @@ def validate(
     with open(config_path, encoding="utf-8") as handle:
         fallback_cfg = yaml.safe_load(handle)
 
-    checkpoint = torch.load(weights, map_location="cpu")
+    checkpoint = safe_torch_load(weights, map_location="cpu")
     checkpoint_cfg = checkpoint.get("config") if isinstance(checkpoint, dict) else None
     cfg = checkpoint_cfg if isinstance(checkpoint_cfg, dict) else fallback_cfg
 
@@ -240,7 +241,7 @@ def validate(
         model = build_model_from_checkpoint(checkpoint).to(device)
     else:
         model = build_model_from_config(cfg).to(device)
-    checkpoint = torch.load(weights, map_location=device)
+    checkpoint = safe_torch_load(weights, map_location=device)
     load_model_weights(model, checkpoint, strict=True)
     model.eval()
 

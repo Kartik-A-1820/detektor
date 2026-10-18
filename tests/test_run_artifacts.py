@@ -87,7 +87,7 @@ class RunArtifactsTests(unittest.TestCase):
             )
 
             with patch(
-                "api.run_artifacts.torch.load",
+                "api.run_artifacts.safe_torch_load",
                 return_value={"epoch": 4, "best_metric": 0.42, "model_config": {"display_name": "Comet"}},
             ):
                 state = load_run_artifacts(run_dir, checkpoint_path, "best")

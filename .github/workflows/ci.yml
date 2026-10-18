@@ -47,6 +47,29 @@ jobs:
       - name: Run test suite
         run: python -m pytest -ra --durations=10
 
+  ui-compat:
+    name: UI on Gradio ${{ matrix.gradio }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        gradio: ["5.50.0", "6"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: requirements*.txt
+      - run: pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
+      - run: pip install -r requirements-dev.txt
+      - name: Install the Gradio version under test
+        run: |
+          if [ "${{ matrix.gradio }}" = "6" ]; then pip install -U "gradio>=6,<7"; else pip install "gradio==${{ matrix.gradio }}"; fi
+          python -c "import gradio; print('gradio', gradio.__version__)"
+      - run: python -m pytest tests/test_ui.py -ra
+
   benchmark-smoke:
     name: Benchmark smoke run
     runs-on: ubuntu-latest

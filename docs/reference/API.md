@@ -113,6 +113,7 @@ Every CLI flag has an `DETEKTOR_*` env var override so you can run via `uvicorn`
 | `--topk-pre-nms` | `DETEKTOR_TOPK_PRE_NMS` | `300` |
 | `--mask-thresh` | `DETEKTOR_MASK_THRESH` | `0.5` |
 | `--include-masks` | `DETEKTOR_INCLUDE_MASKS` | `false` |
+| `--agnostic-nms` | `DETEKTOR_AGNOSTIC_NMS` | `false` |
 | `--max-upload-size-mb` | `DETEKTOR_MAX_UPLOAD_SIZE_MB` | `10` |
 | `--max-batch-size` | `DETEKTOR_MAX_BATCH_SIZE` | `16` |
 | `--no-warmup` | `DETEKTOR_NO_WARMUP` | `false` |
@@ -152,6 +153,12 @@ curl -H "Authorization: Bearer $DETEKTOR_API_KEY" http://localhost:8000/metrics
 
 Missing or wrong credentials return `401` with `WWW-Authenticate: Bearer`. Keys are compared in constant time. The key
 protects the HTTP API; the Gradio console (`--ui`) has its own login via `--ui-auth user:password`.
+
+### Inference options (query parameters)
+
+`conf_thresh`, `iou_thresh`, `max_det`, `include_masks` and `agnostic_nms` are query parameters on `/v1/predict` and
+`/v1/predict_batch`. `agnostic_nms=true` lets overlapping boxes suppress each other regardless of class — useful when a
+weak model labels one object as several classes. Masks are only computed when `include_masks=true`.
 
 ### Request tracing
 

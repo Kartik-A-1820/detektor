@@ -53,10 +53,23 @@ def class_aware_nms(
     labels: Tensor,
     iou_thresh: float,
     max_det: int,
+    agnostic: bool = False,
 ) -> Tensor:
-    """Run class-aware NMS using torchvision when available, else a pure PyTorch fallback."""
+    """Run NMS using torchvision when available, else a pure PyTorch fallback.
+
+    By default suppression happens per class, so overlapping boxes of *different* classes on
+    one object all survive. With ``agnostic=True`` boxes suppress each other regardless of
+    class (the highest-scoring box wins), which removes those duplicates.
+    """
     if boxes.numel() == 0:
         return torch.zeros((0,), device=boxes.device, dtype=torch.long)
+
+    if agnostic:
+        if torchvision_nms is not None:
+            keep = torchvision_nms(boxes, scores, iou_thresh)
+        else:
+            keep = _pure_torch_nms(boxes, scores, iou_thresh)
+        return keep[:max_det]
 
     keep_indices = []
     unique_labels = labels.unique(sorted=True)

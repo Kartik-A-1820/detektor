@@ -42,7 +42,7 @@ from api.schemas import (
 )
 from api.security import make_api_key_dependency, sanitize_request_id
 from api.utils import load_model
-from api.validation import ImageValidationError, validate_uploaded_image
+from api.validation import ImageValidationError, validate_and_decode_image
 
 LOGGER = logging.getLogger("detektor.serve")
 
@@ -63,6 +63,7 @@ class ServiceConfig:
     topk_pre_nms: int = 300
     mask_thresh: float = 0.5
     include_masks_default: bool = False
+    agnostic_nms: bool = False
     num_classes: Optional[int] = None
     proto_k: int = 24
     image_size: Optional[int] = None  # None -> the size the checkpoint was trained at (fallback 512)
@@ -128,6 +129,7 @@ def _load_service(
         default_topk_pre_nms=config.topk_pre_nms,
         default_mask_thresh=config.mask_thresh,
         default_include_masks=config.include_masks_default,
+        default_agnostic_nms=config.agnostic_nms,
     )
 
     if config.enable_warmup and warmup_iterations and warmup_iterations > 0:
@@ -350,6 +352,7 @@ def create_app(config: ServiceConfig) -> FastAPI:
         iou_thresh: Optional[float] = Query(None, ge=0.0, le=1.0, description="IoU threshold for NMS"),
         max_det: Optional[int] = Query(None, ge=1, le=1000, description="Maximum detections"),
         include_masks: Optional[bool] = Query(None, description="Include segmentation masks"),
+        agnostic_nms: Optional[bool] = Query(None, description="Suppress overlapping boxes across classes"),
     ) -> PredictionResponse:
         """Run object detection and instance segmentation on a single image (v1 endpoint)."""
         try:
@@ -363,7 +366,7 @@ def create_app(config: ServiceConfig) -> FastAPI:
         # Read and validate image
         image_bytes = await image.read()
         max_size_bytes = active_config.max_upload_size_mb * 1024 * 1024
-        validate_uploaded_image(
+        decoded_image = validate_and_decode_image(
             image_bytes,
             image.content_type,
             max_file_size=max_size_bytes,
@@ -378,6 +381,8 @@ def create_app(config: ServiceConfig) -> FastAPI:
                 iou_thresh=iou_thresh,
                 max_det=max_det,
                 include_masks=include_masks,
+                agnostic_nms=agnostic_nms,
+                decoded_image=decoded_image,
             )
 
         # Add request ID
@@ -413,6 +418,7 @@ def create_app(config: ServiceConfig) -> FastAPI:
             iou_thresh=None,
             max_det=None,
             include_masks=include_masks,
+            agnostic_nms=None,
         )
 
     @app.post("/v1/predict_batch", response_model=BatchPredictionResponse, tags=["Prediction"], dependencies=protected)
@@ -422,6 +428,7 @@ def create_app(config: ServiceConfig) -> FastAPI:
         iou_thresh: Optional[float] = Query(None, ge=0.0, le=1.0, description="IoU threshold for NMS"),
         max_det: Optional[int] = Query(None, ge=1, le=1000, description="Maximum detections per image"),
         include_masks: Optional[bool] = Query(None, description="Include segmentation masks"),
+        agnostic_nms: Optional[bool] = Query(None, description="Suppress overlapping boxes across classes"),
     ) -> BatchPredictionResponse:
         """Run object detection and instance segmentation on a batch of images."""
         try:
@@ -446,13 +453,16 @@ def create_app(config: ServiceConfig) -> FastAPI:
         images_bytes = []
         max_size_bytes = active_config.max_upload_size_mb * 1024 * 1024
 
+        decoded_images = []
         for idx, img in enumerate(images):
             img_bytes = await img.read()
             try:
-                validate_uploaded_image(
-                    img_bytes,
-                    img.content_type,
-                    max_file_size=max_size_bytes,
+                decoded_images.append(
+                    validate_and_decode_image(
+                        img_bytes,
+                        img.content_type,
+                        max_file_size=max_size_bytes,
+                    )
                 )
                 images_bytes.append(img_bytes)
             except ImageValidationError as e:
@@ -470,6 +480,8 @@ def create_app(config: ServiceConfig) -> FastAPI:
                 iou_thresh=iou_thresh,
                 max_det=max_det,
                 include_masks=include_masks,
+                agnostic_nms=agnostic_nms,
+                decoded_images=decoded_images,
             )
 
         # Add request IDs to individual predictions
@@ -596,6 +608,12 @@ def main() -> None:
         default=os.getenv("DETEKTOR_INCLUDE_MASKS", "false").lower() == "true",
         help="Include masks by default (env: DETEKTOR_INCLUDE_MASKS)",
     )
+    parser.add_argument(
+        "--agnostic-nms",
+        action="store_true",
+        default=os.getenv("DETEKTOR_AGNOSTIC_NMS", "false").lower() == "true",
+        help="Suppress overlapping boxes across classes by default (env: DETEKTOR_AGNOSTIC_NMS)",
+    )
 
     # Service configuration
     parser.add_argument(
@@ -681,6 +699,7 @@ def main() -> None:
         topk_pre_nms=args.topk_pre_nms,
         mask_thresh=args.mask_thresh,
         include_masks_default=args.include_masks,
+        agnostic_nms=args.agnostic_nms,
         num_classes=args.num_classes,
         proto_k=args.proto_k,
         image_size=args.img_size,

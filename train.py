@@ -19,7 +19,7 @@ from utils.auto_train_config import (
     summarize_resolved_training,
     write_resolved_config,
 )
-from utils.checkpoints import build_checkpoint_payload, load_checkpoint, save_checkpoint
+from utils.checkpoints import build_checkpoint_payload, load_checkpoint, safe_torch_load, save_checkpoint
 from utils.collate import detection_segmentation_collate_fn
 from utils.logging_utils import append_jsonl, append_metrics_row, write_json
 from utils.model_info import get_model_info
@@ -55,7 +55,7 @@ def _load_weights_if_provided(model: ChimeraODIS, weights: str | None, device: t
     """Load model weights from either a plain state dict or a checkpoint payload."""
     if not weights:
         return
-    checkpoint = torch.load(weights, map_location=device)
+    checkpoint = safe_torch_load(weights, map_location=device)
     load_model_weights(model, checkpoint, strict=True)
 
 

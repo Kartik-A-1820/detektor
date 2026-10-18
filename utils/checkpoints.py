@@ -1,10 +1,45 @@
 from __future__ import annotations
 
+import os
+import pickle
+import warnings
 from pathlib import Path
 from typing import Any, Dict
 
 import torch
 from torch import nn
+
+UNSAFE_PICKLE_ENV = "DETEKTOR_ALLOW_UNSAFE_PICKLE"
+
+
+class CheckpointLoadError(RuntimeError):
+    """Raised when a checkpoint cannot be loaded safely."""
+
+
+def safe_torch_load(path: str | Path, map_location: Any = "cpu") -> Any:
+    """Load a checkpoint without executing pickled code.
+
+    Checkpoints are pickles; ``torch.load`` can run arbitrary code unless ``weights_only=True``.
+    Every checkpoint Detektor writes (tensors, dicts, lists, numbers, strings) loads in that mode.
+    A file that needs full unpickling is refused with an actionable error. Setting
+    ``DETEKTOR_ALLOW_UNSAFE_PICKLE=1`` opts in to the unsafe loader for a trusted legacy file.
+    """
+    try:
+        return torch.load(path, map_location=map_location, weights_only=True)
+    except pickle.UnpicklingError as exc:
+        if os.environ.get(UNSAFE_PICKLE_ENV) == "1":
+            warnings.warn(
+                f"Loading {path} with full pickle support ({UNSAFE_PICKLE_ENV}=1). "
+                "Only do this for files you trust.",
+                stacklevel=2,
+            )
+            return torch.load(path, map_location=map_location, weights_only=False)
+        raise CheckpointLoadError(
+            f"Refusing to load {path}: it contains objects that are not plain tensors/containers "
+            "and cannot be loaded safely. If you trust this file (you created it with an older "
+            f"version), re-run with {UNSAFE_PICKLE_ENV}=1, then re-save it with Detektor. "
+            f"Original error: {str(exc).splitlines()[0][:200]}"
+        ) from exc
 
 
 def _extract_model_config(model: nn.Module, config: Dict[str, Any] | None = None) -> Dict[str, Any]:
@@ -113,7 +148,7 @@ def load_checkpoint(
             "message": f"Checkpoint not found: {checkpoint_path}",
         }
 
-    checkpoint = torch.load(checkpoint_path, map_location=map_location)
+    checkpoint = safe_torch_load(checkpoint_path, map_location=map_location)
     model_state = checkpoint.get("model_state", checkpoint)
     model.load_state_dict(model_state, strict=strict)
 

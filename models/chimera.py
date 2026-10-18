@@ -299,6 +299,7 @@ class ChimeraODIS(nn.Module):
         mask_thresh: float = 0.5,
         return_mask_probs: bool = False,
         task: str = "segment",
+        agnostic_nms: bool = False,
     ) -> List[Dict[str, Tensor]]:
         """Run lightweight inference postprocessing for detection and instance segmentation.
 
@@ -371,6 +372,7 @@ class ChimeraODIS(nn.Module):
                 labels=labels_i,
                 iou_thresh=iou_thresh,
                 max_det=max_det,
+                agnostic=agnostic_nms,
             )
 
             if keep.numel() == 0:

@@ -5,8 +5,9 @@ import json
 from pathlib import Path
 from typing import Any, Dict, List, Tuple
 
-import torch
 import yaml
+
+from utils.checkpoints import safe_torch_load
 
 _PLOT_FILES = {
     "loss_total": "Loss Curve",
@@ -80,7 +81,7 @@ def _read_checkpoint_summary(checkpoint_path: Path) -> Dict[str, Any]:
         return {}
 
     try:
-        payload = torch.load(checkpoint_path, map_location="cpu")
+        payload = safe_torch_load(checkpoint_path, map_location="cpu")
     except Exception as exc:  # noqa: BLE001
         return {"error": str(exc)}
 

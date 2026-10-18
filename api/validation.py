@@ -143,6 +143,34 @@ def validate_image_dimensions(
         )
 
 
+def validate_and_decode_image(
+    file_bytes: bytes,
+    content_type: str | None,
+    max_file_size: int = DEFAULT_MAX_FILE_SIZE,
+    min_dimension: int = 32,
+    max_dimension: int = 8192,
+) -> np.ndarray:
+    """Validate an upload and return the decoded BGR image (so callers need not decode again).
+
+    Raises:
+        ImageValidationError: If any validation check fails
+    """
+    validate_mime_type(content_type)
+    validate_file_size(file_bytes, max_file_size)
+    peeked = peek_image_size(file_bytes)
+    if peeked is not None and peeked[0] * peeked[1] > MAX_PIXELS:
+        # Decompression-bomb guard: refuse before allocating the decoded pixel buffer.
+        raise ImageValidationError(
+            f"Image dimensions {peeked[0]}x{peeked[1]} exceed the {MAX_PIXELS:,} pixel limit"
+        )
+    image = cv2.imdecode(np.frombuffer(file_bytes, dtype=np.uint8), cv2.IMREAD_COLOR)
+    if image is None:
+        raise ImageValidationError("Could not decode uploaded image")
+    height, width = image.shape[:2]
+    validate_image_dimensions(width, height, min_dimension, max_dimension)
+    return image
+
+
 def validate_uploaded_image(
     file_bytes: bytes,
     content_type: str | None,
@@ -150,24 +178,10 @@ def validate_uploaded_image(
     min_dimension: int = 32,
     max_dimension: int = 8192,
 ) -> Tuple[int, int]:
-    """Comprehensive validation of uploaded image.
-
-    Args:
-        file_bytes: Raw image bytes
-        content_type: MIME type from upload
-        max_file_size: Maximum file size in bytes
-        min_dimension: Minimum image dimension
-        max_dimension: Maximum image dimension
-
-    Returns:
-        Tuple of (width, height)
+    """Comprehensive validation of an uploaded image; returns ``(width, height)``.
 
     Raises:
         ImageValidationError: If any validation check fails
     """
-    validate_mime_type(content_type)
-    validate_file_size(file_bytes, max_file_size)
-    width, height = validate_image_integrity(file_bytes)
-    validate_image_dimensions(width, height, min_dimension, max_dimension)
-
-    return width, height
+    image = validate_and_decode_image(file_bytes, content_type, max_file_size, min_dimension, max_dimension)
+    return image.shape[1], image.shape[0]

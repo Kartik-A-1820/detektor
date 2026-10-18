@@ -76,6 +76,7 @@ python validate.py --weights runs/chimera/chimera_best.pt --data-yaml F:/data/da
 - `--split NAME`: Dataset split to validate (default: `val`)
 - `--img-size INT`: Input image size (default: 512)
 - `--conf-thresh FLOAT`: Confidence threshold (default: 0.25)
+- `--agnostic-nms`: Suppress overlapping boxes across classes (fewer duplicates)
 - `--iou-thresh FLOAT`: NMS IoU threshold (default: 0.6)
 - `--max-det INT`: Maximum detections per image (default: 100)
 - `--batch-size INT`: Batch size for validation (default: 8)
