@@ -112,7 +112,5 @@ jobs:
           tags: detektor:ci
           cache-from: type=gha
           cache-to: type=gha,mode=max
-      - name: Smoke test the image
-        run: |
-          docker run --rm --entrypoint python detektor:ci -c "import serve, api, ui.app; print('imports ok')"
-          docker run --rm --entrypoint id detektor:ci -u | grep -qx 10001
+      - name: Functional smoke test (serve a model, check auth, inference, metrics, healthcheck)
+        run: scripts/docker_smoke.sh detektor:ci
