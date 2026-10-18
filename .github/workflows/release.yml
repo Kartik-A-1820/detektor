@@ -96,7 +96,7 @@ jobs:
             type=raw,value=dryrun,enable=${{ !startsWith(github.ref, 'refs/tags/v') }}
       - name: Build a single-arch image and smoke-test it
         if: matrix.variant == 'cpu'
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           load: true
@@ -108,7 +108,7 @@ jobs:
         if: matrix.variant == 'cpu'
         run: scripts/docker_smoke.sh detektor:smoke
       - name: Build${{ env.PUBLISH == 'true' && ' and push' || '' }} multi-arch image
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           platforms: ${{ matrix.platforms }}
