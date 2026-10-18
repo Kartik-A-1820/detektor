@@ -7,7 +7,7 @@ opencv-python-headless>=4.8
 pillow>=10.0
 pyyaml>=6.0
 tqdm
-matplotlib>=3.7
+matplotlib>=3.11.2
 pandas>=2.0
 pycocotools
 psutil>=5.9
