@@ -32,12 +32,12 @@
 
 **Current scope:** a local/small-team framework with operational serving features. The published real-photo accuracy baseline is modest; improving model quality is active work. Synthetic task accuracy and randomly initialized timing profiles do not establish real-world detection quality.
 
-## Why Detektor
+## Capabilities
 
-- **One repo, whole lifecycle.** Dataset preflight → hardware‑aware training → evaluation → packaging → REST API + web console → ONNX export → benchmarks.
-- **Runs where you are.** Six architecture profiles (≈1.4 M – 15 M parameters) scale from CPU‑only machines to larger GPUs; training auto‑configures itself from your free VRAM/RAM and dataset size (tuned on a 4 GB GTX 1650 Ti).
+- **Model lifecycle.** Dataset preflight → hardware‑aware training → evaluation → packaging → REST API + web console → ONNX export → benchmarks.
+- **Architecture profiles.** Six architecture profiles (≈1.4 M – 15 M parameters) scale from CPU‑only machines to larger GPUs; training auto‑configures itself from your free VRAM/RAM and dataset size (tuned on a 4 GB GTX 1650 Ti).
 - **Detection *and* instance segmentation** from one model, auto‑detected from your labels.
-- **Production plumbing included.** API‑key auth, request limits, Prometheus metrics, health/readiness probes, hot‑swappable checkpoints, non‑root Docker image, CI.
+- **Serving controls.** API‑key auth, request limits, Prometheus metrics, health/readiness probes, hot‑swappable checkpoints, non‑root Docker image, CI.
 - **Inspectable measurements.** An eleven-suite benchmark framework records timing, resource use, accuracy, and robustness with environment details. Reproduction requirements differ by suite; see [Benchmarks](#benchmarks).
 
 ## Quick start
@@ -47,11 +47,12 @@
 ```bash
 git clone https://github.com/Kartik-A-1820/detektor && cd detektor
 python -m venv .venv
-# Linux/macOS: source .venv/bin/activate
-# Windows PowerShell: .venv\Scripts\Activate.ps1
+source .venv/bin/activate
 pip install -r requirements.txt          # GPU: install a CUDA build of torch first (pytorch.org)
 python -m scripts.run_smoke_checks       # sanity check
 ```
+
+On Windows PowerShell, replace `source .venv/bin/activate` with `.venv\Scripts\Activate.ps1`.
 
 ### Try the complete pipeline with synthetic data (CPU)
 
@@ -204,9 +205,9 @@ _Forward pass only (the exported graph excludes decode/NMS/masks). `Max abs diff
 
 ### Accuracy baselines (COCO‑style mAP) and robustness
 
-**Real photographs** — `african-wildlife` (400 train / 225 val images, 4 classes), `firefly` (1.4 M parameters) trained **from scratch** for 20 epochs at 320 px on CPU in 558 s → **mAP50 0.218**, mAP50‑95 0.091, mean box IoU 0.72. A tiny model trained for minutes without pretrained weights is a *reference point to improve on*, not a showcase (pretrained backbones are the top item on the [roadmap](docs/ROADMAP.md)). Before the 1.1 box-decoding fix this same run scored exactly 0.
+**Real photographs** — `african-wildlife` (400 train / 225 val images, 4 classes), `firefly` (1.4 M parameters) trained **from scratch** for 20 epochs at 320 px on CPU in 558 s → **mAP50 0.218**, mAP50‑95 0.091, mean box IoU 0.72. A tiny model trained for minutes without pretrained weights is a baseline for subsequent experiments (pretrained backbones are the top item on the [roadmap](docs/ROADMAP.md)). Before the 1.1 box-decoding fix this same run scored exactly 0.
 
-**Synthetic shapes** — `firefly` trained for 30 epochs on 192 synthetic images (256 px, CPU, 672 s) → **mAP50 1.000**, AP50‑95 0.952, mAP75 0.987, precision 0.594, recall 1.000 on 48 held‑out images (`conf=0.05`). This proves the data → train → checkpoint → validate path learns; it is not a real‑world accuracy claim.
+**Synthetic shapes** — `firefly` trained for 30 epochs on 192 synthetic images (256 px, CPU, 672 s) → **mAP50 1.000**, AP50‑95 0.952, mAP75 0.987, precision 0.594, recall 1.000 on 48 held‑out images (`conf=0.05`). This checks learning across the data → train → checkpoint → validate path on a small synthetic task; it does not establish real-world accuracy.
 
 Robustness: across 9 corruptions (Gaussian noise σ=10/25, blur, brightness ×0.6/×1.4, contrast ×0.5, JPEG q20, 0.5× downscale) mAP50 retains ≥ 100% of the clean score (worst: `gaussian_noise_s10`). That is expected on this easy, high-contrast task — run the `robustness` suite on *your* model and data for a meaningful curve.
 
@@ -239,9 +240,9 @@ Complete reference: [docs/reference/TOOLS.md](docs/reference/TOOLS.md).
 | **Understand** | [Architecture](docs/ARCHITECTURE.md) · [Task modes](docs/guides/TASK_MODES.md) · [Project status](docs/status/PROJECT_STATUS.md) |
 | **Contribute** | [Contributing](CONTRIBUTING.md) · [Testing](docs/guides/TESTING.md) · [Security policy](SECURITY.md) · [Changelog](CHANGELOG.md) |
 
-## Project status & honest limitations
+## Project status and limitations
 
-Detektor is a **solid foundation for local and small‑team use** with production plumbing around it — but be aware of:
+Detektor targets local and small-team workflows. Current limits include:
 
 - **Model quality is the open problem.** The architecture is small and trains quickly, but precision/recall on hard,
   real‑world datasets is not state of the art, and no pretrained weights are shipped yet. Benchmark on *your* data
@@ -272,7 +273,7 @@ Released under the [MIT License](LICENSE).
 ```bibtex
 @software{detektor2026,
   title  = {Detektor: Lightweight Object Detection and Instance Segmentation},
-  author = {Vibe-Coded Collaboration},
+  author = {Kartik Anagawadi},
   year   = {2026},
   url    = {https://github.com/Kartik-A-1820/detektor}
 }

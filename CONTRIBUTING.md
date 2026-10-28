@@ -18,8 +18,7 @@ By participating you agree to the [Code of Conduct](CODE_OF_CONDUCT.md). Securit
 ```bash
 git clone https://github.com/Kartik-A-1820/detektor && cd detektor
 python -m venv .venv
-# Linux/macOS: source .venv/bin/activate
-# Windows PowerShell: .venv\Scripts\Activate.ps1
+source .venv/bin/activate
 
 # CPU-only PyTorch is sufficient for the documented offline test path
 pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
@@ -29,6 +28,8 @@ make test          # or: python -m pytest
 make lint          # or: ruff check .
 make bench-quick   # ≈1 min benchmark smoke run
 ```
+
+On Windows PowerShell, replace `source .venv/bin/activate` with `.venv\Scripts\Activate.ps1`. The `make` targets require Make; their Python equivalents are shown above.
 
 Optional: `pip install pre-commit && pre-commit install` to run lint on every commit.
 
