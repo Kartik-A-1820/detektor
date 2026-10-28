@@ -21,13 +21,24 @@
 
 ---
 
+## Start here
+
+| Goal | Entry point |
+| --- | --- |
+| Try a complete local demo | [Synthetic-data quick start](#quick-start) — no external dataset required |
+| Assess the implementation | [Architecture](docs/ARCHITECTURE.md), [tests](tests/), and [project status](docs/status/PROJECT_STATUS.md) |
+| Interpret performance/accuracy | [Benchmark methodology](docs/BENCHMARKS.md) and the environment notes below |
+| Report a bug or contribute | [CONTRIBUTING.md](CONTRIBUTING.md) and the issue templates |
+
+**Current scope:** a local/small-team framework with operational serving features. The published real-photo accuracy baseline is modest; improving model quality is active work. Synthetic task accuracy and randomly initialized timing profiles do not establish real-world detection quality.
+
 ## Why Detektor
 
 - **One repo, whole lifecycle.** Dataset preflight → hardware‑aware training → evaluation → packaging → REST API + web console → ONNX export → benchmarks.
 - **Runs where you are.** Six architecture profiles (≈1.4 M – 15 M parameters) scale from CPU‑only machines to larger GPUs; training auto‑configures itself from your free VRAM/RAM and dataset size (tuned on a 4 GB GTX 1650 Ti).
 - **Detection *and* instance segmentation** from one model, auto‑detected from your labels.
 - **Production plumbing included.** API‑key auth, request limits, Prometheus metrics, health/readiness probes, hot‑swappable checkpoints, non‑root Docker image, CI.
-- **Measured, not claimed.** An eleven‑suite benchmark framework with a regression gate; every number in this README is reproducible with one command (see [Benchmarks](#benchmarks)).
+- **Inspectable measurements.** An eleven-suite benchmark framework records timing, resource use, accuracy, and robustness with environment details. Reproduction requirements differ by suite; see [Benchmarks](#benchmarks).
 
 ## Quick start
 
@@ -35,12 +46,14 @@
 
 ```bash
 git clone https://github.com/Kartik-A-1820/detektor && cd detektor
-python -m venv .venv && source .venv/bin/activate
+python -m venv .venv
+# Linux/macOS: source .venv/bin/activate
+# Windows PowerShell: .venv\Scripts\Activate.ps1
 pip install -r requirements.txt          # GPU: install a CUDA build of torch first (pytorch.org)
 python -m scripts.run_smoke_checks       # sanity check
 ```
 
-### No dataset yet? Try the whole pipeline in ~10 minutes (CPU)
+### Try the complete pipeline with synthetic data (CPU)
 
 ```bash
 python -m benchmarks.synthetic --out data/synthetic                # 192 + 48 seeded images, 3 classes
@@ -49,6 +62,8 @@ python train.py --data-yaml data/synthetic/data.yaml --device cpu --model firefl
        --run-val --val-freq 5 --out-dir runs/demo
 python serve.py --weights runs/demo/chimera_best.pt --ui           # → http://127.0.0.1:8000/ui
 ```
+
+The original CPU demonstration took roughly ten minutes; runtime depends on the machine. The examples use Bash line continuation; in PowerShell, run each multi-line Python command as one line.
 
 Open the console, drop a few images from `data/synthetic/val/images`, optionally tick *Draw segmentation masks*, and press *Run detection*. (The server automatically runs the model at the 256 px it was trained at.)
 
@@ -250,8 +265,7 @@ make install-dev && make test && make lint && make bench-quick
 
 ## About
 
-Detektor is built through iterative human–AI collaboration ("vibe coding"): rapidly turning ideas into working code,
-then hardening the useful parts with tests, benchmarks and documentation.
+Detektor is developed through iterative human–AI collaboration. Implementation decisions are documented alongside tests, benchmarks, and known limitations so contributors can inspect and improve the work.
 
 Released under the [MIT License](LICENSE).
 
