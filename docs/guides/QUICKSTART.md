@@ -1,6 +1,6 @@
 # Detektor Quick Start Guide
 
-This guide walks you through the complete workflow from dataset preparation to production deployment.
+This guide covers a local dataset-to-serving workflow. Complete the [root setup](../../README.md#quick-start) first; production deployment requires additional environment and operational validation. Paths below are examples to replace with your own dataset location.
 
 ## Prerequisites
 
@@ -19,7 +19,7 @@ python -c "import torch; print(f'PyTorch: {torch.__version__}, CUDA: {torch.cuda
 Organize your dataset in YOLO format:
 
 ```
-F:/data/
+data/example/
 ├── train/
 │   ├── images/
 │   │   ├── img_001.jpg
@@ -33,10 +33,10 @@ F:/data/
 └── data.yaml
 ```
 
-**data.yaml:**
+**data.yaml:** Use absolute paths for the two image directories, or dataset-relative paths supported by your loader. Replace `/absolute/path/to` below with your actual dataset root:
 ```yaml
-train: F:/data/train/images
-val: F:/data/val/images
+train: /absolute/path/to/data/example/train/images
+val: /absolute/path/to/data/example/val/images
 nc: 4
 names: ['ball', 'goalkeeper', 'player', 'referee']
 ```
@@ -46,10 +46,10 @@ names: ['ball', 'goalkeeper', 'player', 'referee']
 Before training, check for common issues:
 
 ```bash
-python check_dataset.py --data-yaml F:/data/data.yaml
+python check_dataset.py --data-yaml data/example/data.yaml
 ```
 
-**Expected output:**
+**Illustrative output** (counts and timings depend on your data):
 ```
 ✅ VALIDATION PASSED - No issues found
 
@@ -73,7 +73,7 @@ Start training with the default configuration:
 ```bash
 python train.py \
   --config configs/chimera_s_512.yaml \
-  --data-yaml F:/data/data.yaml
+  --data-yaml data/example/data.yaml
 ```
 
 **Monitor training:**
@@ -104,7 +104,7 @@ Run validation to get detailed metrics:
 ```bash
 python validate.py \
   --weights runs/chimera/chimera_best.pt \
-  --data-yaml F:/data/data.yaml \
+  --data-yaml data/example/data.yaml \
   --split val
 ```
 
@@ -131,15 +131,15 @@ Run inference on a single image:
 python infer.py \
   --weights runs/chimera/chimera_best.pt \
   --source test_image.jpg \
-  --data-yaml F:/data/data.yaml
+  --data-yaml data/example/data.yaml
 ```
 
 **Batch inference on a folder:**
 ```bash
 python infer.py \
   --weights runs/chimera/chimera_best.pt \
-  --source F:/data/test/images/ \
-  --data-yaml F:/data/data.yaml
+  --source data/example/test/images/ \
+  --data-yaml data/example/data.yaml
 ```
 
 **Output:**
@@ -177,7 +177,7 @@ Create a reproducible model artifact:
 python -m scripts.package_model \
   --weights runs/chimera/chimera_best.pt \
   --config configs/chimera_s_512.yaml \
-  --data-yaml F:/data/data.yaml \
+  --data-yaml data/example/data.yaml \
   --output artifacts/chimera_v1
 ```
 
@@ -256,7 +256,7 @@ Open `http://127.0.0.1:8000/ui`. To use the console against an API that is alrea
 ```bash
 python train.py \
   --config configs/chimera_s_512.yaml \
-  --data-yaml F:/data/data.yaml \
+  --data-yaml data/example/data.yaml \
   --resume runs/chimera/chimera_last.pt
 ```
 
@@ -275,7 +275,7 @@ python export.py \
 python -m scripts.benchmark \
   --weights runs/chimera/chimera_best.pt \
   --onnx exports/chimera.onnx \
-  --source F:/data/test/images
+  --source data/example/test/images
 ```
 
 ### Run Tests
@@ -305,7 +305,7 @@ train:
 
 Enable debug mode:
 ```bash
-python train.py --config configs/chimera_s_512.yaml --data-yaml F:/data/data.yaml --debug-loss
+python train.py --config configs/chimera_s_512.yaml --data-yaml data/example/data.yaml --debug-loss
 ```
 
 Try stability fixes:

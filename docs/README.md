@@ -45,3 +45,7 @@ Implementation write-ups kept for maintainers: [OPTIMIZER_LOSS_BASELINE](interna
 [INTEGRATION_SUMMARY](internal/INTEGRATION_SUMMARY.md),
 [REPORTING_IMPLEMENTATION_SUMMARY](internal/REPORTING_IMPLEMENTATION_SUMMARY.md), and the collaboration
 [handoff log](handoffs/vibecode.md).
+
+## First visit and contributions
+
+For installation and a synthetic demo, begin with the [repository README](../README.md). For implementation review, follow the architecture, testing, and benchmark guides. Follow [CONTRIBUTING.md](../CONTRIBUTING.md) when proposing a change, and keep measured behavior separate from proposed roadmap work.

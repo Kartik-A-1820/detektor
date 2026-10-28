@@ -1,9 +1,6 @@
 # Contributing to Detektor
 
-Thanks for your interest! Detektor is a lightweight, practical object detection and instance segmentation project for
-rapid experimentation and single-machine deployment. This repository is also explicitly **vibe-coded**: it was built
-through iterative collaboration between a human developer and AI coding assistants, so expect pragmatic decisions and a
-preference for improving working paths incrementally over large rewrites.
+Detektor welcomes focused fixes, clear reproductions, documentation improvements, and measured model/runtime experiments. It is developed with AI-assisted coding and reviewed through source inspection, tests, benchmarks, and documented limitations. Small, independently verifiable contributions are a good place to start.
 
 By participating you agree to the [Code of Conduct](CODE_OF_CONDUCT.md). Security issues go through
 [SECURITY.md](SECURITY.md), not public issues.
@@ -20,9 +17,10 @@ By participating you agree to the [Code of Conduct](CODE_OF_CONDUCT.md). Securit
 
 ```bash
 git clone https://github.com/Kartik-A-1820/detektor && cd detektor
-python -m venv .venv && source .venv/bin/activate
+python -m venv .venv
+source .venv/bin/activate
 
-# CPU-only PyTorch is enough for the whole test suite
+# CPU-only PyTorch is sufficient for the documented offline test path
 pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
 pip install -r requirements-dev.txt
 
@@ -30,6 +28,8 @@ make test          # or: python -m pytest
 make lint          # or: ruff check .
 make bench-quick   # ≈1 min benchmark smoke run
 ```
+
+On Windows PowerShell, replace `source .venv/bin/activate` with `.venv\Scripts\Activate.ps1`. The `make` targets require Make; their Python equivalents are shown above.
 
 Optional: `pip install pre-commit && pre-commit install` to run lint on every commit.
 
@@ -50,7 +50,7 @@ python -m pytest tests/test_api.py -x     # a single file, stop on first failure
 python -m scripts.run_smoke_checks        # lightweight model smoke checks
 ```
 
-Every bug fix should come with a regression test; every new feature with tests for its main path and edge cases.
+Behavioral changes should include a focused regression or feature test. Documentation-only corrections should verify commands, links, and source correspondence; they do not need implementation-mirroring tests.
 Tests must run without a GPU or network access. See [docs/guides/TESTING.md](docs/guides/TESTING.md).
 
 ## Benchmarks

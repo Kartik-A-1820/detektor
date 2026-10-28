@@ -16,3 +16,5 @@ Check your own machine against the baseline:
 python -m benchmarks run --suites fast --profiles firefly,comet,nova --tag mine
 python -m benchmarks compare benchmarks/results/baseline-cpu.json runs/benchmarks/<your-run>/results.json --threshold 25
 ```
+
+A timing-only reproduction can use an architecture profile without trained weights. Accuracy/robustness claims require the matching trained checkpoint, dataset, split, and evaluation settings. Label those inputs explicitly when contributing a result; do not infer model quality from random-weight latency measurements.
